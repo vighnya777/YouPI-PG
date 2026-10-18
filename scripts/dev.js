@@ -6,7 +6,7 @@ import { runMigrations } from '../packages/db/src/migrate.js';
 import { startControlCenter } from '../apps/control-center/src/index.js';
 import { startCloudflaredSafely } from '../packages/common/src/tunnel-command.js';
 import { resolveRuntimeUrls } from '../packages/common/src/runtime-config.js';
-import { startPublicGateway } from '../apps/public-gateway/src/server.js';
+import { resolvePublicGatewayPorts, startPublicGateway } from '../apps/public-gateway/src/server.js';
 
 if (!process.env.YOUPI_MODE) process.env.YOUPI_MODE = 'localhost';
 if (!process.env.NODE_ENV) process.env.NODE_ENV = 'development';
@@ -17,10 +17,12 @@ if (fs.existsSync(envFile) && typeof process.loadEnvFile === 'function') {
   process.loadEnvFile(envFile);
 }
 
-const publicPort = Number(process.env.PUBLIC_ROUTER_PORT || 8080);
+const { publicPort, helpPort } = resolvePublicGatewayPorts();
 const controlCenterPort = Number(process.env.CONTROL_CENTER_PORT || 8090);
 const apiPort = Number(process.env.PAYMENT_API_PORT || 6100);
-process.env.PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${publicPort}`;
+process.env.HELP_PORTAL_PORT = String(helpPort);
+process.env.PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL ||
+  `http://localhost:${publicPort}`;
 
 const runtimeUrls = resolveRuntimeUrls({
   envMode: 'localhost',

@@ -66,6 +66,7 @@ npm run db:setup
 npm run dev
 ```
 Starts the same path-based public gateway locally at `http://localhost:8080`. Use that origin for Admin, API, Checkout, Help, Store, and Gmail OAuth; the process supervisor remains local at `http://localhost:8090`.
+On managed hosts such as Render, the development launcher binds the public gateway to the host-provided `PORT` (ahead of `PUBLIC_ROUTER_PORT`) and uses `RENDER_EXTERNAL_URL` as the public origin when `PUBLIC_BASE_URL` is unset. If the assigned public port conflicts with the Help service port, Help is moved to the next port.
 
 #### Production Mode:
 ```bash

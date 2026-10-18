@@ -32,6 +32,15 @@ const STORE_API_ROUTES = new Set([
   '/api/webhook'
 ]);
 
+export function resolvePublicGatewayPorts(env = process.env) {
+  const publicPort = Number(env.PORT || env.PUBLIC_ROUTER_PORT || 8080);
+  const configuredHelpPort = Number(env.HELP_PORTAL_PORT || 3000);
+  return {
+    publicPort,
+    helpPort: configuredHelpPort === publicPort ? publicPort + 1 : configuredHelpPort
+  };
+}
+
 function routeRequest(pathname, ports) {
   if (pathname === '/health') return { service: null };
 
@@ -137,7 +146,7 @@ export class PublicGatewayServer {
 }
 
 export function startPublicGateway(port = null, options = {}) {
-  const finalPort = port || Number(process.env.PORT || process.env.PUBLIC_ROUTER_PORT || 8080);
+  const finalPort = port || resolvePublicGatewayPorts().publicPort;
   const server = new PublicGatewayServer(options).createServer();
 
   return new Promise((resolve, reject) => {

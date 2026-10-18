@@ -6,7 +6,7 @@ import { runMigrations } from '../packages/db/src/migrate.js';
 import { startControlCenter } from '../apps/control-center/src/index.js';
 import { resolveRuntimeUrls } from '../packages/common/src/runtime-config.js';
 import { startCloudflaredSafely } from '../packages/common/src/tunnel-command.js';
-import { startPublicGateway } from '../apps/public-gateway/src/server.js';
+import { resolvePublicGatewayPorts, startPublicGateway } from '../apps/public-gateway/src/server.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,7 +37,8 @@ const branding = merchant?.branding || {};
 // 2. Validate Production Configuration (Part B2 & Part I)
 const domain = (branding.cloudflareDomain || branding.domainTld || process.env.CLOUDFLARE_DOMAIN || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
 const prefix = (branding.deploymentPrefix || branding.domainPrefix || process.env.DEPLOYMENT_PREFIX || 'pay').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '') || 'pay';
-const routerPort = Number(process.env.PUBLIC_ROUTER_PORT || 8080);
+const { publicPort: routerPort, helpPort } = resolvePublicGatewayPorts();
+process.env.HELP_PORTAL_PORT = String(helpPort);
 
 let runtimeUrls;
 try {
@@ -86,7 +87,7 @@ const cc = await startControlCenter(8090);
 console.log('[3/3] Starting core production gateway services (Pure API & Android Observer)...\n');
 await cc.processManager.startAll();
 
-const publicGateway = await startPublicGateway(Number(process.env.PORT || routerPort));
+const publicGateway = await startPublicGateway(routerPort);
 
 console.log('====================================================');
 console.log('🟢 YOUPI PG V2 PRODUCTION GATEWAY ONLINE & ACTIVE');

@@ -1,9 +1,29 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { PublicGatewayServer } from '../server.js';
+import { PublicGatewayServer, resolvePublicGatewayPorts } from '../server.js';
 
 describe('Public gateway path routing', () => {
+  test('uses the host-assigned public port and avoids colliding with Help', () => {
+    assert.deepEqual(resolvePublicGatewayPorts({
+      PORT: '3000',
+      PUBLIC_ROUTER_PORT: '8080',
+      HELP_PORTAL_PORT: '3000'
+    }), {
+      publicPort: 3000,
+      helpPort: 3001
+    });
+
+    assert.deepEqual(resolvePublicGatewayPorts({
+      PORT: '10000',
+      PUBLIC_ROUTER_PORT: '8080',
+      HELP_PORTAL_PORT: '3000'
+    }), {
+      publicPort: 10000,
+      helpPort: 3000
+    });
+  });
+
   const upstreams = [];
   const ports = {};
   let gateway;
