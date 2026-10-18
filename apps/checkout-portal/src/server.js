@@ -24,22 +24,8 @@ export class CheckoutServer {
    *   helpPortalUrl?: string
    * }} options
    */
-  constructor(options = {}) {
-    try {
-      const rootEnv = path.resolve(__dirname, '../../../.env');
-      if (fs.existsSync(rootEnv)) {
-        const raw = fs.readFileSync(rootEnv, 'utf8');
-        for (const line of raw.split(/\r?\n/)) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith('BASE_PAYMENT_API_URL=')) {
-            const val = trimmed.split('=')[1]?.trim();
-            if (val) process.env.BASE_PAYMENT_API_URL = val.replace(/^["']|["']$/g, '');
-          }
-        }
-      }
-    } catch {}
-
-    this.apiBaseUrl = options.apiBaseUrl || process.env.BASE_PAYMENT_API_URL || 'http://localhost:6100';
+   constructor(options = {}) {
+     this.apiBaseUrl = options.apiBaseUrl || process.env.BASE_PAYMENT_API_URL || 'http://localhost:6100';
     this.htmlTemplatePath = path.join(__dirname, 'views', 'checkout.html');
     this.sdkScriptPath = path.join(__dirname, 'sdk', 'youpi-checkout.js');
     this.template = fs.readFileSync(this.htmlTemplatePath, 'utf8');

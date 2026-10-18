@@ -8,12 +8,22 @@ export const SERVICE_PORTS = Object.freeze({
   API: 6100,
   ADMIN: 6001,
   GMAIL: 6003,
-  STORE: 5000
+  STORE: 5000,
+  PUBLIC_GATEWAY: Number(process.env.PUBLIC_ROUTER_PORT || 8080)
 });
 
+function normalizePublicBaseUrl(value) {
+  const parsed = new URL(value);
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password ||
+      parsed.pathname !== '/' || parsed.search || parsed.hash) {
+    throw new Error('PUBLIC_BASE_URL must be an http(s) origin without a path, query, or credentials.');
+  }
+  return parsed.origin;
+}
+
 /**
- * Derives public hostnames and Cloudflare published application mappings.
- * @param {{ domain?: string, prefix?: string }} config
+ * Derives the single public hostname and its local reverse-proxy target.
+ * @param {{ domain?: string, prefix?: string, publicBaseUrl?: string, publicRouterPort?: number }} config
  * @returns {Array<{
  *   role: string,
  *   name: string,
@@ -28,61 +38,40 @@ export const SERVICE_PORTS = Object.freeze({
 export function deriveCloudflareRoutes(config = {}) {
   const rawDomain = (config.domain || config.domainTld || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
   const rawPrefix = (config.prefix || config.domainPrefix || 'pay').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '') || 'pay';
-
-  if (!rawDomain) {
+  const publicBaseUrl = config.publicBaseUrl || process.env.PUBLIC_BASE_URL;
+  if (!rawDomain && !publicBaseUrl) {
     return [];
   }
 
+  const publicUrl = publicBaseUrl
+    ? normalizePublicBaseUrl(publicBaseUrl)
+    : `https://${rawPrefix}.${rawDomain}`;
+  const publicHostname = new URL(publicUrl).host;
+  const publicRouterPort = Number(config.publicRouterPort || process.env.PUBLIC_ROUTER_PORT || SERVICE_PORTS.PUBLIC_GATEWAY);
+
   return [
     {
-      role: 'checkout',
-      name: 'Checkout',
-      publicHostname: `${rawPrefix}.${rawDomain}`,
-      publicUrl: `https://${rawPrefix}.${rawDomain}`,
-      serviceUrl: `http://localhost:${SERVICE_PORTS.CHECKOUT}`,
-      port: SERVICE_PORTS.CHECKOUT,
-      purpose: 'Customer checkout / checkout portal',
+      role: 'public-gateway',
+      name: 'YOUPI PG Public Gateway',
+      publicHostname,
+      publicUrl,
+      serviceUrl: `http://localhost:${publicRouterPort}`,
+      port: publicRouterPort,
+      purpose: 'Single public origin; routes API, checkout, admin, help, store, and Gmail OAuth by path.',
+      paths: [
+        '/',
+        '/admin/*',
+        '/api/*',
+        '/checkout/*',
+        '/youpi.js',
+        '/sdk/*',
+        '/icons/*',
+        '/help/*',
+        '/support',
+        '/store/*',
+        '/oauth/*'
+      ],
       optional: false
-    },
-    {
-      role: 'api',
-      name: 'Payment API',
-      publicHostname: `${rawPrefix}-api.${rawDomain}`,
-      publicUrl: `https://${rawPrefix}-api.${rawDomain}`,
-      serviceUrl: `http://localhost:${SERVICE_PORTS.API}`,
-      port: SERVICE_PORTS.API,
-      purpose: 'Payment API / merchant API / SSE / observer ingestion',
-      optional: false
-    },
-    {
-      role: 'admin',
-      name: 'Merchant Admin',
-      publicHostname: `${rawPrefix}-admin.${rawDomain}`,
-      publicUrl: `https://${rawPrefix}-admin.${rawDomain}`,
-      serviceUrl: `http://localhost:${SERVICE_PORTS.ADMIN}`,
-      port: SERVICE_PORTS.ADMIN,
-      purpose: 'Merchant/Admin panel',
-      optional: false
-    },
-    {
-      role: 'gmail',
-      name: 'Gmail OAuth / Gmail Observer',
-      publicHostname: `${rawPrefix}-gmail.${rawDomain}`,
-      publicUrl: `https://${rawPrefix}-gmail.${rawDomain}`,
-      serviceUrl: `http://localhost:${SERVICE_PORTS.GMAIL}`,
-      port: SERVICE_PORTS.GMAIL,
-      purpose: 'Gmail OAuth callback and Gmail observation service',
-      optional: false
-    },
-    {
-      role: 'store',
-      name: 'Demo Store',
-      publicHostname: `${rawPrefix}-store.${rawDomain}`,
-      publicUrl: `https://${rawPrefix}-store.${rawDomain}`,
-      serviceUrl: `http://localhost:${SERVICE_PORTS.STORE}`,
-      port: SERVICE_PORTS.STORE,
-      purpose: 'Reference/demo store',
-      optional: true
     }
   ];
 }
@@ -94,7 +83,9 @@ export function deriveCloudflareRoutes(config = {}) {
  *   domain?: string,
  *   domainTld?: string,
  *   prefix?: string,
- *   domainPrefix?: string
+ *   domainPrefix?: string,
+ *   publicBaseUrl?: string,
+ *   publicRouterPort?: number
  * }} options
  */
 export function resolveRuntimeUrls(options = {}) {
@@ -113,38 +104,51 @@ export function resolveRuntimeUrls(options = {}) {
   mode = String(mode).toLowerCase();
   const domain = (options.domain || options.domainTld || process.env.CLOUDFLARE_DOMAIN || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
   const prefix = (options.prefix || options.domainPrefix || process.env.DEPLOYMENT_PREFIX || 'pay').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '') || 'pay';
+  const configuredPublicBaseUrl = options.publicBaseUrl || process.env.PUBLIC_BASE_URL || '';
 
   if (mode === 'production') {
-    if (!domain) {
+    if (!domain && !configuredPublicBaseUrl) {
       if ((process.env.NODE_ENV === 'test' || process.env.YOUPI_MODE === 'localhost') && options.envMode !== 'production') {
         mode = 'localhost';
       } else {
-        throw new Error('Production Configuration Incomplete: Cloudflare Domain is required when running in PRODUCTION mode.');
+        throw new Error('Production Configuration Incomplete: set PUBLIC_BASE_URL or CLOUDFLARE_DOMAIN.');
       }
     }
   }
 
-  if (mode === 'production') {
-
-    const routes = deriveCloudflareRoutes({ domain, prefix });
-    const getRoute = (role) => routes.find(r => r.role === role);
-
-    return {
-      mode: 'production',
-      isProduction: true,
+  if (mode === 'production' || configuredPublicBaseUrl) {
+    const publicUrl = configuredPublicBaseUrl
+      ? normalizePublicBaseUrl(configuredPublicBaseUrl)
+      : `https://${prefix}.${domain}`;
+    const publicHostname = new URL(publicUrl).host;
+    const routes = deriveCloudflareRoutes({
       domain,
       prefix,
+      publicBaseUrl: publicUrl,
+      publicRouterPort: options.publicRouterPort
+    });
+    const path = (suffix) => `${publicUrl}${suffix}`;
+
+    return {
+      mode,
+      isProduction: mode === 'production',
+      domain,
+      prefix,
+      publicUrl,
+      publicHostname,
       routes,
-      checkoutUrl: getRoute('checkout')?.publicUrl || `https://${prefix}.${domain}`,
-      checkoutHostname: getRoute('checkout')?.publicHostname || `${prefix}.${domain}`,
-      apiUrl: getRoute('api')?.publicUrl || `https://${prefix}-api.${domain}`,
-      apiHostname: getRoute('api')?.publicHostname || `${prefix}-api.${domain}`,
-      adminUrl: getRoute('admin')?.publicUrl || `https://${prefix}-admin.${domain}`,
-      adminHostname: getRoute('admin')?.publicHostname || `${prefix}-admin.${domain}`,
-      gmailUrl: getRoute('gmail')?.publicUrl || `https://${prefix}-gmail.${domain}`,
-      gmailHostname: getRoute('gmail')?.publicHostname || `${prefix}-gmail.${domain}`,
-      storeUrl: getRoute('store')?.publicUrl || `https://${prefix}-store.${domain}`,
-      storeHostname: getRoute('store')?.publicHostname || `${prefix}-store.${domain}`
+      checkoutUrl: publicUrl,
+      checkoutHostname: publicHostname,
+      apiUrl: publicUrl,
+      apiHostname: publicHostname,
+      adminUrl: path('/admin'),
+      adminHostname: publicHostname,
+      gmailUrl: publicUrl,
+      gmailHostname: publicHostname,
+      gmailRedirectUri: path('/oauth/callback'),
+      helpUrl: path('/help'),
+      storeUrl: path('/store'),
+      storeHostname: publicHostname
     };
   }
 
@@ -169,6 +173,8 @@ export function resolveRuntimeUrls(options = {}) {
     adminHostname: 'localhost:6001',
     gmailUrl: 'http://localhost:6003',
     gmailHostname: 'localhost:6003',
+    gmailRedirectUri: process.env.GMAIL_REDIRECT_URI || 'http://localhost:6003/oauth/callback',
+    helpUrl: process.env.BASE_HELP_URL || 'http://localhost:3000',
     storeUrl: 'http://localhost:5000',
     storeHostname: 'localhost:5000'
   };
@@ -232,14 +238,16 @@ export function resolvePairingUrl(options = {}) {
 }
 
 /**
- * OAuth redirect URI for the Gmail observer. `GMAIL_REDIRECT_URI` wins; otherwise it is derived
- * from the configured domain, falling back to the local observer port.
+ * OAuth redirect URI for the Gmail observer. A shared public origin always uses its routed callback.
  * @param {object} [branding]
  */
 export function resolveGmailRedirectUri(branding = {}) {
+  if (process.env.PUBLIC_BASE_URL) {
+    return `${normalizePublicBaseUrl(process.env.PUBLIC_BASE_URL)}/oauth/callback`;
+  }
   if (process.env.GMAIL_REDIRECT_URI) return process.env.GMAIL_REDIRECT_URI;
   try {
-    return `${resolveRuntimeUrls(branding || {}).gmailUrl}/oauth/callback`;
+    return resolveRuntimeUrls(branding || {}).gmailRedirectUri;
   } catch {
     return `http://localhost:${process.env.GMAIL_OBSERVER_PORT || 6003}/oauth/callback`;
   }

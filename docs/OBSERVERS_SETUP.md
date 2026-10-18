@@ -18,12 +18,13 @@ YOUPI PG employs a **Tri-Channel Observation Engine** where all three methods op
 2. Enable the **Gmail API**.
 3. Create OAuth 2.0 Credentials:
    - Application type: Web application
-   - Authorized redirect URI: `http://localhost:6003/oauth/callback` (or your domain)
+   - Authorized redirect URI: `${PUBLIC_BASE_URL}/oauth/callback` in deployment (locally: `http://localhost:6003/oauth/callback`)
 4. Add credentials to `.env`:
    ```env
    GMAIL_CLIENT_ID=your-client-id.apps.googleusercontent.com
    GMAIL_CLIENT_SECRET=your-client-secret
-   GMAIL_REDIRECT_URI=http://localhost:6003/oauth/callback
+   # In production this is derived from PUBLIC_BASE_URL as ${PUBLIC_BASE_URL}/oauth/callback.
+   GMAIL_REDIRECT_URI=
    ```
 5. Navigate to `http://localhost:6003/oauth/url` or Merchant Admin to authorize your Gmail account.
 

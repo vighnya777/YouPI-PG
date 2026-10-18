@@ -15,7 +15,7 @@ YouPI PG introduces a **2-Level Verification Architecture**:
 
 ## Required Credentials Summary
 
-To connect Gmail in the Merchant Admin panel (`http://localhost:5000`), you will need:
+To connect Gmail in the Merchant Admin panel (`http://localhost:6001` locally, or `<PUBLIC_BASE_URL>/admin` in deployment), you will need:
 1. **Google OAuth Client ID**: e.g., `YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com`
 2. **Google OAuth Client Secret**: e.g., `YOUR_GOOGLE_CLIENT_SECRET`
 3. **Google Refresh Token**: e.g., `YOUR_GOOGLE_REFRESH_TOKEN`
@@ -70,12 +70,11 @@ To connect Gmail in the Merchant Admin panel (`http://localhost:5000`), you will
 3. Under **Application type**, select **Web application**.
 4. Under **Name**, enter: `YouPI PG Web Client`.
 5. Under **Authorized JavaScript origins**, add:
-   - `http://localhost:5000`
-   - `http://localhost:6100`
+   - Your deployment origin (`PUBLIC_BASE_URL`), or locally `http://localhost:6001`
    - `https://developers.google.com`
 6. Under **Authorized redirect URIs**, add **both** of the following URIs:
    - `https://developers.google.com/oauthplayground` *(Required for generating the initial Refresh Token)*
-   - `http://localhost:5000/oauth2callback`
+   - `${PUBLIC_BASE_URL}/oauth/callback` *(deployment; locally use `http://localhost:6003/oauth/callback`)*
 7. Click **Create**.
 8. A modal will appear displaying:
    - **Your Client ID**
@@ -110,7 +109,7 @@ Google OAuth access tokens expire after 1 hour, but a **Refresh Token** allows t
 ---
 
 ### Step 6: Connect Gmail in YouPI Merchant Panel
-1. Open the YouPI Merchant Admin dashboard at `http://localhost:5000`.
+1. Open the YouPI Merchant Admin dashboard at `http://localhost:6001` locally, or `<PUBLIC_BASE_URL>/admin` in deployment.
 2. Navigate to **📡 Payment Observers (SMS & Gmail)** (Tab 3).
 3. In the **📧 Gmail Direct API** card:
    - Paste your **Google OAuth Client ID**.

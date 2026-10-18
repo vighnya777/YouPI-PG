@@ -17,64 +17,61 @@ describe('YOUPI PG V2 — Production Infrastructure Finalization (Part L Accepta
   // GROUP 1: CLOUDFLARE TUNNEL CONFIGURATION (Acceptance 1 - 12)
   // ============================================================
   describe('Group 1: Cloudflare Tunnel Configuration & Route Derivation', () => {
-    test('1, 2, 3: Generates deterministic hostnames for domain and prefix', () => {
+    test('1, 2, 3: Generates one public hostname and path route map', () => {
       const routes = deriveCloudflareRoutes({ domain: 'example.com', prefix: 'pay' });
-      assert.equal(routes.length, 5);
-
-      const checkout = routes.find(r => r.role === 'checkout');
-      assert.equal(checkout.publicHostname, 'pay.example.com');
-      assert.equal(checkout.publicUrl, 'https://pay.example.com');
-
-      const api = routes.find(r => r.role === 'api');
-      assert.equal(api.publicHostname, 'pay-api.example.com');
-      assert.equal(api.publicUrl, 'https://pay-api.example.com');
-
-      const admin = routes.find(r => r.role === 'admin');
-      assert.equal(admin.publicHostname, 'pay-admin.example.com');
-      assert.equal(admin.publicUrl, 'https://pay-admin.example.com');
-
-      const gmail = routes.find(r => r.role === 'gmail');
-      assert.equal(gmail.publicHostname, 'pay-gmail.example.com');
-      assert.equal(gmail.publicUrl, 'https://pay-gmail.example.com');
-
-      const store = routes.find(r => r.role === 'store');
-      assert.equal(store.publicHostname, 'pay-store.example.com');
-      assert.equal(store.publicUrl, 'https://pay-store.example.com');
+      assert.equal(routes.length, 1);
+      assert.equal(routes[0].role, 'public-gateway');
+      assert.equal(routes[0].publicHostname, 'pay.example.com');
+      assert.equal(routes[0].publicUrl, 'https://pay.example.com');
+      assert.equal(routes[0].serviceUrl, 'http://localhost:8080');
+      assert.deepEqual(routes[0].paths, [
+        '/',
+        '/admin/*',
+        '/api/*',
+        '/checkout/*',
+        '/youpi.js',
+        '/sdk/*',
+        '/icons/*',
+        '/help/*',
+        '/support',
+        '/store/*',
+        '/oauth/*'
+      ]);
     });
 
-    test('4: Checkout maps to port 7000', () => {
+    test('4: Checkout remains an internal service behind the gateway', () => {
       const routes = deriveCloudflareRoutes({ domain: 'mybrand.in', prefix: 'pay' });
-      const checkout = routes.find(r => r.role === 'checkout');
-      assert.equal(checkout.serviceUrl, 'http://localhost:7000');
+      const checkout = routes[0];
+      assert.equal(checkout.serviceUrl, 'http://localhost:8080');
       assert.equal(SERVICE_PORTS.CHECKOUT, 7000);
     });
 
-    test('5: API maps to port 6100', () => {
+    test('5: API remains an internal service behind the gateway', () => {
       const routes = deriveCloudflareRoutes({ domain: 'mybrand.in', prefix: 'pay' });
-      const api = routes.find(r => r.role === 'api');
-      assert.equal(api.serviceUrl, 'http://localhost:6100');
+      const api = routes[0];
+      assert.equal(api.serviceUrl, 'http://localhost:8080');
       assert.equal(SERVICE_PORTS.API, 6100);
     });
 
-    test('6: Admin maps to port 6001', () => {
+    test('6: Admin remains an internal service behind the gateway', () => {
       const routes = deriveCloudflareRoutes({ domain: 'mybrand.in', prefix: 'pay' });
-      const admin = routes.find(r => r.role === 'admin');
-      assert.equal(admin.serviceUrl, 'http://localhost:6001');
+      const admin = routes[0];
+      assert.equal(admin.serviceUrl, 'http://localhost:8080');
       assert.equal(SERVICE_PORTS.ADMIN, 6001);
     });
 
-    test('7: Gmail maps to port 6003', () => {
+    test('7: Gmail remains an internal service behind the gateway', () => {
       const routes = deriveCloudflareRoutes({ domain: 'mybrand.in', prefix: 'pay' });
-      const gmail = routes.find(r => r.role === 'gmail');
-      assert.equal(gmail.serviceUrl, 'http://localhost:6003');
+      const gmail = routes[0];
+      assert.equal(gmail.serviceUrl, 'http://localhost:8080');
       assert.equal(SERVICE_PORTS.GMAIL, 6003);
     });
 
-    test('8: Demo Store maps to port 5000 and is clearly optional', () => {
+    test('8: Demo Store remains an internal service behind the gateway', () => {
       const routes = deriveCloudflareRoutes({ domain: 'mybrand.in', prefix: 'pay' });
-      const store = routes.find(r => r.role === 'store');
-      assert.equal(store.serviceUrl, 'http://localhost:5000');
-      assert.equal(store.optional, true);
+      const store = routes[0];
+      assert.equal(store.serviceUrl, 'http://localhost:8080');
+      assert.equal(store.optional, false);
     });
 
     test('9, 10: Control Center (8090) and Legacy SMS Observer (6002) are NOT exposed in Cloudflare mappings', () => {
@@ -85,13 +82,20 @@ describe('YOUPI PG V2 — Production Infrastructure Finalization (Part L Accepta
       assert.equal(hasSmsLegacy, false, 'Legacy SMS Observer port 6002 must not be exposed');
     });
 
-    test('11, 12: Public URLs are consistent across runtime resolver without competing matrices', () => {
+    test('11, 12: Public URLs are consistent across runtime resolver with a single origin', () => {
       const prodUrls = resolveRuntimeUrls({ envMode: 'production', domain: 'example.com', prefix: 'pay' });
+      assert.equal(prodUrls.publicUrl, 'https://pay.example.com');
       assert.equal(prodUrls.checkoutUrl, 'https://pay.example.com');
-      assert.equal(prodUrls.apiUrl, 'https://pay-api.example.com');
-      assert.equal(prodUrls.adminUrl, 'https://pay-admin.example.com');
-      assert.equal(prodUrls.gmailUrl, 'https://pay-gmail.example.com');
-      assert.equal(prodUrls.storeUrl, 'https://pay-store.example.com');
+      assert.equal(prodUrls.apiUrl, 'https://pay.example.com');
+      assert.equal(prodUrls.adminUrl, 'https://pay.example.com/admin');
+      assert.equal(prodUrls.gmailUrl, 'https://pay.example.com');
+      assert.equal(prodUrls.gmailRedirectUri, 'https://pay.example.com/oauth/callback');
+      assert.equal(prodUrls.helpUrl, 'https://pay.example.com/help');
+      assert.equal(prodUrls.storeUrl, 'https://pay.example.com/store');
+
+      const hostedUrls = resolveRuntimeUrls({ envMode: 'production', publicBaseUrl: 'https://hosted.example.net' });
+      assert.equal(hostedUrls.publicHostname, 'hosted.example.net');
+      assert.equal(hostedUrls.storeUrl, 'https://hosted.example.net/store');
 
       const devUrls = resolveRuntimeUrls({ envMode: 'localhost' });
       assert.equal(devUrls.checkoutUrl, 'http://localhost:7000');
@@ -99,6 +103,20 @@ describe('YOUPI PG V2 — Production Infrastructure Finalization (Part L Accepta
       assert.equal(devUrls.adminUrl, 'http://localhost:6001');
       assert.equal(devUrls.gmailUrl, 'http://localhost:6003');
       assert.equal(devUrls.storeUrl, 'http://localhost:5000');
+
+      const singleOriginDevUrls = resolveRuntimeUrls({
+        envMode: 'localhost',
+        publicBaseUrl: 'http://localhost:8080',
+        publicRouterPort: 8080
+      });
+      assert.equal(singleOriginDevUrls.mode, 'localhost');
+      assert.equal(singleOriginDevUrls.isProduction, false);
+      assert.equal(singleOriginDevUrls.apiUrl, 'http://localhost:8080');
+      assert.equal(singleOriginDevUrls.checkoutUrl, 'http://localhost:8080');
+      assert.equal(singleOriginDevUrls.adminUrl, 'http://localhost:8080/admin');
+      assert.equal(singleOriginDevUrls.helpUrl, 'http://localhost:8080/help');
+      assert.equal(singleOriginDevUrls.storeUrl, 'http://localhost:8080/store');
+      assert.equal(singleOriginDevUrls.gmailRedirectUri, 'http://localhost:8080/oauth/callback');
     });
   });
 
@@ -146,7 +164,7 @@ describe('YOUPI PG V2 — Production Infrastructure Finalization (Part L Accepta
         prefix: loaded.branding.deploymentPrefix
       });
       assert.equal(urls.checkoutUrl, 'https://pay.production-brand.com');
-      assert.equal(urls.apiUrl, 'https://pay-api.production-brand.com');
+      assert.equal(urls.apiUrl, 'https://pay.production-brand.com');
       db.close();
     });
 
@@ -167,7 +185,7 @@ describe('YOUPI PG V2 — Production Infrastructure Finalization (Part L Accepta
   describe('Group 3: SMS Pairing QR Payload & Automatic Configuration', () => {
     test('18, 19, 22: QR contains structured pairing payload with version, token, and session ID', () => {
       const payload = createPairingPayload({
-        serverUrl: 'https://pay-api.example.com',
+        serverUrl: 'https://pay.example.com',
         sessionId: 'sess_12345',
         token: 'enroll_secret_abc',
         merchantId: 'merch_001',
@@ -176,7 +194,7 @@ describe('YOUPI PG V2 — Production Infrastructure Finalization (Part L Accepta
 
       assert.equal(payload.version, 'v1');
       assert.equal(payload.type, 'YOUPI_SMS_GATEWAY_PAIR');
-      assert.equal(payload.serverUrl, 'https://pay-api.example.com');
+      assert.equal(payload.serverUrl, 'https://pay.example.com');
       assert.equal(payload.sessionId, 'sess_12345');
       assert.equal(payload.token, 'enroll_secret_abc');
       assert.equal(payload.merchantId, 'merch_001');
@@ -189,14 +207,14 @@ describe('YOUPI PG V2 — Production Infrastructure Finalization (Part L Accepta
         domain: 'example.com',
         prefix: 'pay'
       });
-      assert.equal(prodApiUrl, 'https://pay-api.example.com');
+      assert.equal(prodApiUrl, 'https://pay.example.com');
 
       const payload = createPairingPayload({
         serverUrl: prodApiUrl,
         sessionId: 'prod_sess',
         token: 'prod_token'
       });
-      assert.equal(payload.serverUrl, 'https://pay-api.example.com');
+      assert.equal(payload.serverUrl, 'https://pay.example.com');
     });
 
     test('21: Localhost pairing URL follows localhost:6100', () => {
@@ -214,7 +232,7 @@ describe('YOUPI PG V2 — Production Infrastructure Finalization (Part L Accepta
     test('23, 24, 25: Validates payload and rejects expired or malformed payloads', () => {
       // Valid payload
       const validPayload = createPairingPayload({
-        serverUrl: 'https://pay-api.example.com',
+        serverUrl: 'https://pay.example.com',
         sessionId: 'sess_valid',
         token: 'tok_valid',
         ttlMs: 60000
@@ -284,10 +302,9 @@ describe('YOUPI PG V2 — Production Infrastructure Finalization (Part L Accepta
   // GROUP 5: GMAIL OAUTH & RAW OBSERVATION FORWARDING (Acceptance 34 - 44)
   // ============================================================
   describe('Group 5: Gmail OAuth & Direct API Observation', () => {
-    test('35: Production Gmail redirect URI derived as pay-gmail.example.com/oauth/callback', () => {
+    test('35: Production Gmail redirect URI uses the shared public origin', () => {
       const prodUrls = resolveRuntimeUrls({ envMode: 'production', domain: 'example.com', prefix: 'pay' });
-      const redirectUri = `${prodUrls.gmailUrl}/oauth/callback`;
-      assert.equal(redirectUri, 'https://pay-gmail.example.com/oauth/callback');
+      assert.equal(prodUrls.gmailRedirectUri, 'https://pay.example.com/oauth/callback');
     });
 
     test('36: Localhost Gmail redirect URI derived as localhost:6003/oauth/callback', () => {

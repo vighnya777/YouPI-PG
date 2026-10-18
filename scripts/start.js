@@ -6,6 +6,7 @@ import { runMigrations } from '../packages/db/src/migrate.js';
 import { startControlCenter } from '../apps/control-center/src/index.js';
 import { resolveRuntimeUrls } from '../packages/common/src/runtime-config.js';
 import { startCloudflaredSafely } from '../packages/common/src/tunnel-command.js';
+import { startPublicGateway } from '../apps/public-gateway/src/server.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,32 +37,36 @@ const branding = merchant?.branding || {};
 // 2. Validate Production Configuration (Part B2 & Part I)
 const domain = (branding.cloudflareDomain || branding.domainTld || process.env.CLOUDFLARE_DOMAIN || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
 const prefix = (branding.deploymentPrefix || branding.domainPrefix || process.env.DEPLOYMENT_PREFIX || 'pay').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '') || 'pay';
-
-if (!domain) {
-  console.error('\n================================================================');
-  console.error('❌ [CONFIGURATION ERROR] PRODUCTION STARTUP FAILED');
-  console.error('================================================================');
-  console.error('Cloudflare Domain is required when running in PRODUCTION mode.');
-  console.error('Please configure your Cloudflare Domain in the Merchant Admin panel,');
-  console.error('or set CLOUDFLARE_DOMAIN in .env before running `npm start`.');
-  console.error('');
-  console.error('YOUPI PG V2 adheres to authoritative production mode and will NOT');
-  console.error('silently rewrite or fall back to localhost in production.');
-  console.error('================================================================\n');
-  process.exit(1);
-}
+const routerPort = Number(process.env.PUBLIC_ROUTER_PORT || 8080);
 
 let runtimeUrls;
 try {
-  runtimeUrls = resolveRuntimeUrls({ envMode: 'production', domain, prefix });
+  runtimeUrls = resolveRuntimeUrls({
+    envMode: 'production',
+    domain,
+    prefix,
+    publicBaseUrl: process.env.PUBLIC_BASE_URL,
+    publicRouterPort: routerPort
+  });
 } catch (err) {
   console.error('\n❌ [CONFIGURATION ERROR]:', err.message);
   process.exit(1);
 }
 
+process.env.PUBLIC_BASE_URL = runtimeUrls.publicUrl;
+process.env.PUBLIC_ROUTER_PORT = String(routerPort);
+process.env.PAYMENT_API_INTERNAL_URL = `http://127.0.0.1:${process.env.PAYMENT_API_PORT || 6100}`;
+process.env.BASE_PAYMENT_API_URL = runtimeUrls.apiUrl;
+process.env.BASE_CHECKOUT_URL = runtimeUrls.checkoutUrl;
+process.env.BASE_ADMIN_URL = runtimeUrls.adminUrl;
+process.env.BASE_HELP_URL = runtimeUrls.helpUrl;
+process.env.BASE_DEMO_STORE_URL = runtimeUrls.storeUrl;
+process.env.GMAIL_REDIRECT_URI = runtimeUrls.gmailRedirectUri;
+
 console.log(`[✓] Authoritative Runtime Mode: PRODUCTION`);
-console.log(`[✓] Cloudflare Domain: ${runtimeUrls.domain}`);
-console.log(`[✓] Deployment Prefix: ${runtimeUrls.prefix}\n`);
+console.log(`[✓] Single public origin: ${runtimeUrls.publicUrl}`);
+console.log(`[✓] Deployment Prefix: ${runtimeUrls.prefix}`);
+console.log('[✓] Public path routes: /api, /checkout, /admin, /help, /store, /oauth\n');
 
 // Check for user-configured Cloudflare Tunnel command
 let tunnelProcess = null;
@@ -81,15 +86,19 @@ const cc = await startControlCenter(8090);
 console.log('[3/3] Starting core production gateway services (Pure API & Android Observer)...\n');
 await cc.processManager.startAll();
 
+const publicGateway = await startPublicGateway(Number(process.env.PORT || routerPort));
+
 console.log('====================================================');
 console.log('🟢 YOUPI PG V2 PRODUCTION GATEWAY ONLINE & ACTIVE');
 console.log('====================================================');
-console.log('AUTHORITATIVE PUBLIC CLOUDFLARE ROUTES:');
-console.log(`• Checkout Portal:      ${runtimeUrls.checkoutUrl}  (-> :7000)`);
-console.log(`• Payment Core API:     ${runtimeUrls.apiUrl}  (-> :6100)`);
-console.log(`• Merchant Admin Hub:   ${runtimeUrls.adminUrl}  (-> :6001)`);
-console.log(`• Gmail OAuth/Observer: ${runtimeUrls.gmailUrl}  (-> :6003)`);
-console.log(`• Demo Store (Opt):     ${runtimeUrls.storeUrl}  (-> :5000)`);
+console.log('SINGLE PUBLIC ORIGIN & PATH ROUTES:');
+console.log(`• Merchant Admin Hub:   ${runtimeUrls.publicUrl}/admin`);
+console.log(`• Payment API:          ${runtimeUrls.publicUrl}/api`);
+console.log(`• Checkout Portal:      ${runtimeUrls.publicUrl}/checkout`);
+console.log(`• Payment Help:         ${runtimeUrls.helpUrl}`);
+console.log(`• Demo Store (Opt):     ${runtimeUrls.storeUrl}`);
+console.log(`• Gmail OAuth Callback: ${runtimeUrls.gmailRedirectUri}`);
+console.log(`• Public Gateway Port:  ${publicGateway.port}`);
 console.log('----------------------------------------------------');
 console.log('OBSERVATION CHANNELS:');
 console.log('• Android SMS Observer: Native APK -> Public Payment API');
@@ -110,6 +119,7 @@ const shutdown = async () => {
       }
     } catch {}
   }
+  await publicGateway.close();
   await cc.close();
   console.log('All processes terminated cleanly.');
   process.exit(0);

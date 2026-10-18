@@ -1,13 +1,42 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { runMigrations } from '../packages/db/src/migrate.js';
 import { startControlCenter } from '../apps/control-center/src/index.js';
 import { startCloudflaredSafely } from '../packages/common/src/tunnel-command.js';
+import { resolveRuntimeUrls } from '../packages/common/src/runtime-config.js';
+import { startPublicGateway } from '../apps/public-gateway/src/server.js';
 
 if (!process.env.YOUPI_MODE) process.env.YOUPI_MODE = 'localhost';
 if (!process.env.NODE_ENV) process.env.NODE_ENV = 'development';
 
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const envFile = path.join(rootDir, '.env');
+if (fs.existsSync(envFile) && typeof process.loadEnvFile === 'function') {
+  process.loadEnvFile(envFile);
+}
+
+const publicPort = Number(process.env.PUBLIC_ROUTER_PORT || 8080);
+const controlCenterPort = Number(process.env.CONTROL_CENTER_PORT || 8090);
+const apiPort = Number(process.env.PAYMENT_API_PORT || 6100);
+process.env.PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${publicPort}`;
+
+const runtimeUrls = resolveRuntimeUrls({
+  envMode: 'localhost',
+  publicBaseUrl: process.env.PUBLIC_BASE_URL,
+  publicRouterPort: publicPort
+});
+process.env.BASE_PAYMENT_API_URL = runtimeUrls.apiUrl;
+process.env.BASE_CHECKOUT_URL = runtimeUrls.checkoutUrl;
+process.env.BASE_ADMIN_URL = runtimeUrls.adminUrl;
+process.env.BASE_HELP_URL = runtimeUrls.helpUrl;
+process.env.BASE_DEMO_STORE_URL = runtimeUrls.storeUrl;
+process.env.GMAIL_REDIRECT_URI = runtimeUrls.gmailRedirectUri;
+process.env.PAYMENT_API_INTERNAL_URL = `http://127.0.0.1:${apiPort}`;
+
 console.log('====================================================');
-console.log('🚀 Starting YOUPI PG (Development / Localhost Mode)');
+console.log('🚀 Starting YOUPI PG (Development / Single-Origin Mode)');
 console.log('====================================================');
 
 // 1. Run database migrations & seeds
@@ -29,23 +58,26 @@ if (tunnelCmd && tunnelCmd.trim()) {
 }
 
 // 2. Start Control Center supervisor and launch all services
-console.log('[2/2] Launching Local Process Control Center on port 8090...');
-const cc = await startControlCenter(8090);
+console.log(`[2/2] Launching Local Process Control Center on port ${controlCenterPort}...`);
+const cc = await startControlCenter(controlCenterPort);
 
-console.log('\n[✓] Control Center is online at: http://localhost:8090');
+console.log(`\n[✓] Local process supervisor is online on port ${controlCenterPort}`);
 console.log('[*] Starting all modular gateway services...\n');
 
 await cc.processManager.startAll();
+const publicGateway = await startPublicGateway(publicPort);
 
 console.log('====================================================');
-console.log('🟢 ALL SERVICES ONLINE & OPERATIONAL');
+console.log('🟢 YOUPI PUBLIC GATEWAY ONLINE');
 console.log('====================================================');
-console.log('• Merchant Panel & Control Hub: http://localhost:6001');
-console.log('• Payment Core REST API:        http://localhost:6100');
-console.log('• Customer Checkout Portal:     http://localhost:7000/checkout/:id');
-console.log('• YOUPI Showcase Store:        http://localhost:5000 (toggleable)');
-console.log('• Gmail Payment Observer:       http://localhost:6003');
-console.log('• Google Messages / SMS Obs:    http://localhost:6002');
+console.log(`• Single local origin:  ${runtimeUrls.publicUrl}`);
+console.log(`• Merchant Admin:       ${runtimeUrls.adminUrl}`);
+console.log(`• Payment API:          ${runtimeUrls.apiUrl}/api`);
+console.log(`• Checkout:             ${runtimeUrls.checkoutUrl}/checkout/:id`);
+console.log(`• Demo Store:           ${runtimeUrls.storeUrl}`);
+console.log(`• Help:                 ${runtimeUrls.helpUrl}`);
+console.log(`• Gmail OAuth callback: ${runtimeUrls.gmailRedirectUri}`);
+console.log(`• Local supervisor:    http://localhost:${controlCenterPort} (not public)`);
 console.log('====================================================');
 console.log('Press Ctrl+C to stop all services gracefully.');
 
@@ -62,6 +94,7 @@ const shutdown = async () => {
       }
     } catch {}
   }
+  await publicGateway.close();
   await cc.close();
   console.log('All processes terminated cleanly.');
   process.exit(0);
@@ -69,4 +102,3 @@ const shutdown = async () => {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
-

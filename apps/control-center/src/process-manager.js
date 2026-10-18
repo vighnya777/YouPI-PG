@@ -48,6 +48,17 @@ export class ProcessManager extends EventEmitter {
         pid: null
       },
       {
+        id: 'payment-help',
+        name: 'Payment Help Portal',
+        script: path.join(rootDir, 'apps/payment-help/src/index.js'),
+        port: Number(process.env.HELP_PORTAL_PORT || 3000),
+        healthPath: '/health',
+        child: null,
+        status: 'STOPPED',
+        startTime: null,
+        pid: null
+      },
+      {
         id: 'gmail-observer',
         name: 'Gmail Payment Observer',
         script: path.join(rootDir, 'apps/gmail-observer/src/index.js'),
@@ -155,7 +166,7 @@ export class ProcessManager extends EventEmitter {
 
     const child = fork(svc.script, [], {
       execArgv: [...process.execArgv, ...execArgv],
-      env: { ...process.env, ...freshEnv, PORT: svc.port.toString() },
+      env: { ...freshEnv, ...process.env, PORT: svc.port.toString() },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc']
     });
 
