@@ -21,12 +21,15 @@ export class AdminServer {
   /**
    * @param {{
    *   db?: import('@youpi/db').Database,
-   *   apiBaseUrl?: string
+   *   apiBaseUrl?: string,
+   *   storeBaseUrl?: string
    * }} options
    */
   constructor(options = {}) {
     this.db = options.db || getDatabase();
     this.apiBaseUrl = options.apiBaseUrl || process.env.BASE_PAYMENT_API_URL || 'http://localhost:6100';
+    this.storeBaseUrl = options.storeBaseUrl || process.env.BASE_DEMO_STORE_URL ||
+      `http://localhost:${process.env.COIN_STORE_PORT || process.env.COIN_WALLET_STORE_PORT || 5000}`;
     this.merchantRepo = new MerchantRepository(this.db);
     this.ticketRepo = new SupportTicketRepository(this.db);
     this.htmlTemplatePath = path.join(__dirname, 'views', 'admin.html');
@@ -43,6 +46,9 @@ export class AdminServer {
     // This completely eliminates CORS errors, tunnel downtime 530s, and cross-origin failures.
     const clientApiBase = '';
     html = html.replaceAll('{{API_BASE_URL}}', clientApiBase);
+    const storeBaseUrl = this.storeBaseUrl.replaceAll('&', '&amp;').replaceAll('"', '&quot;')
+      .replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+    html = html.replaceAll('{{STORE_BASE_URL}}', storeBaseUrl);
     return html;
   }
 
