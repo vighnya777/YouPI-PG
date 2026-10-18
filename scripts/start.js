@@ -5,8 +5,10 @@ import { spawn } from 'node:child_process';
 import { runMigrations } from '../packages/db/src/migrate.js';
 import { startControlCenter } from '../apps/control-center/src/index.js';
 import { resolveRuntimeUrls } from '../packages/common/src/runtime-config.js';
+import { getAdminToken } from '../packages/common/src/secrets.js';
 import { startCloudflaredSafely } from '../packages/common/src/tunnel-command.js';
 import { resolvePublicGatewayPorts, startPublicGateway } from '../apps/public-gateway/src/server.js';
+import { isHostedDeployment } from './deployment-context.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -94,6 +96,10 @@ console.log('🟢 YOUPI PG V2 PRODUCTION GATEWAY ONLINE & ACTIVE');
 console.log('====================================================');
 console.log('SINGLE PUBLIC ORIGIN & PATH ROUTES:');
 console.log(`• Merchant Admin Hub:   ${runtimeUrls.publicUrl}/admin`);
+if (isHostedDeployment()) {
+  console.log(`• Admin API token:      ${getAdminToken()}`);
+  console.log('  Restrict hosting log access to administrators.');
+}
 console.log(`• Payment API:          ${runtimeUrls.publicUrl}/api`);
 console.log(`• Checkout Portal:      ${runtimeUrls.publicUrl}/checkout`);
 console.log(`• Payment Help:         ${runtimeUrls.helpUrl}`);

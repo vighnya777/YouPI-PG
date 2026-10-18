@@ -11,8 +11,32 @@ import {
   PaymentMethod
 } from '@youpi/common';
 import { Database, runMigrations, MerchantRepository, DeviceRepository } from '@youpi/db';
+import { isHostedDeployment } from './deployment-context.js';
 
 describe('YOUPI PG V2 — Production Infrastructure Finalization (Part L Acceptance Tests)', () => {
+  describe('Hosted deployment output gating', () => {
+    test('detects common hosting platform environment markers', () => {
+      for (const marker of [
+        'RENDER_EXTERNAL_URL',
+        'RAILWAY_ENVIRONMENT',
+        'FLY_APP_NAME',
+        'VERCEL',
+        'DYNO',
+        'K_SERVICE',
+        'WEBSITE_SITE_NAME',
+        'AWS_EXECUTION_ENV',
+        'DIGITALOCEAN_APP_ID',
+        'REPL_ID'
+      ]) {
+        assert.equal(isHostedDeployment({ [marker]: 'configured' }), true, `${marker} should identify a hosted deployment`);
+      }
+    });
+
+    test('does not identify a local environment as hosted', () => {
+      assert.equal(isHostedDeployment({ NODE_ENV: 'development', PORT: '8080' }), false);
+    });
+  });
+
   // ============================================================
   // GROUP 1: CLOUDFLARE TUNNEL CONFIGURATION (Acceptance 1 - 12)
   // ============================================================

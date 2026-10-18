@@ -74,6 +74,8 @@ npm run start
 ```
 Starts services in background daemon mode.
 
+When either launcher detects a supported hosting platform, it prints the Admin API token beside the Admin URL after startup. This token is a bearer credential: restrict deployment log access to administrators and rotate the token if those logs are exposed. Local startup does not print it.
+
 ---
 
 ## 3. Verifying Your Installation
