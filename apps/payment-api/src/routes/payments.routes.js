@@ -312,10 +312,14 @@ export function registerPaymentRoutes(server, ctx) {
           id: c.id,
           name: c.name,
           email: c.email,
-          mobileNumber: c.mobileNumber
+          mobileNumber: c.mobileNumber,
+          isPhoneVerified: c.isPhoneVerified
         };
       }
     }
+    const observation = session.attributedObservationId && ctx.obsRepo
+      ? ctx.obsRepo.findById(session.attributedObservationId)
+      : null;
 
     HttpServer.json(res, 200, {
       paymentId: session.id,
@@ -329,6 +333,7 @@ export function registerPaymentRoutes(server, ctx) {
       isCod: session.method === 'COD',
       customer,
       placedAt: session.completedAt ? (session.completedAt.toISOString ? session.completedAt.toISOString() : session.completedAt) : (session.createdAt?.toISOString ? session.createdAt.toISOString() : session.createdAt),
+      utr: observation?.bankReferenceNumber || null,
       metadata: session.metadata
     });
   });
@@ -362,10 +367,14 @@ export function registerPaymentRoutes(server, ctx) {
           id: c.id,
           name: c.name,
           email: c.email,
-          mobileNumber: c.mobileNumber
+          mobileNumber: c.mobileNumber,
+          isPhoneVerified: c.isPhoneVerified
         };
       }
     }
+    const observation = session.attributedObservationId && ctx.obsRepo
+      ? ctx.obsRepo.findById(session.attributedObservationId)
+      : null;
 
     HttpServer.json(res, 200, {
       paymentId: session.id,
@@ -379,6 +388,7 @@ export function registerPaymentRoutes(server, ctx) {
       isCod: session.method === 'COD',
       customer,
       placedAt: session.completedAt ? (session.completedAt.toISOString ? session.completedAt.toISOString() : session.completedAt) : (session.createdAt?.toISOString ? session.createdAt.toISOString() : session.createdAt),
+      utr: observation?.bankReferenceNumber || null,
       metadata: session.metadata
     });
   });

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { YoupiPaymentClient } from '@youpi/merchant-sdk';
-import { getCoinStoreWebhookSecret } from '@youpi/common';
+import { getAdminToken, getCoinStoreWebhookSecret } from '@youpi/common';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,6 +34,7 @@ export class CoinWalletStoreServer {
 
     // orderId -> gateway paymentId for orders this store created (used to verify payments server-side)
     this.orderPayments = new Map();
+    this.paymentNotifications = new Map();
 
     this.paymentClient = new YoupiPaymentClient({
       apiUrl: this.gatewayApiUrl,
@@ -63,6 +64,92 @@ export class CoinWalletStoreServer {
       status: 'CREDITED',
       timestamp: new Date().toISOString()
     });
+  }
+
+  async notifyCustomerPaymentStatus(orderId) {
+    const inFlightOrSent = this.paymentNotifications.get(orderId);
+    if (inFlightOrSent) return { ...(await inFlightOrSent), alreadySent: true };
+
+    const paymentId = this.orderPayments.get(orderId);
+
+    const notification = (async () => {
+      const detailsUrl = paymentId
+        ? new URL(`/api/v1/payments/${encodeURIComponent(paymentId)}/cod`, this.gatewayApiUrl)
+        : new URL(`/api/v1/orders/${encodeURIComponent(orderId)}/cod?merchantId=${encodeURIComponent(this.merchantId)}`, this.gatewayApiUrl);
+      const detailsResponse = await fetch(detailsUrl);
+      if (!detailsResponse.ok) {
+        if (detailsResponse.status === 404) {
+          return { sent: false, statusCode: 404, error: 'Unknown order' };
+        }
+        throw new Error(`Unable to retrieve payment details (HTTP ${detailsResponse.status})`);
+      }
+
+      const payment = await detailsResponse.json();
+      if (payment.orderId !== orderId) {
+        return { sent: false, statusCode: 400, error: 'Payment order does not match' };
+      }
+
+      const terminalStatuses = new Set(['SUCCESS', 'FAILED', 'CANCELLED', 'EXPIRED']);
+      if (!terminalStatuses.has(payment.status)) {
+        return { sent: false, statusCode: 409, error: 'Payment has not reached a final status' };
+      }
+
+      const customer = payment.customer;
+      const phoneNumber = customer?.mobileNumber || customer?.phoneNumber;
+      if (!phoneNumber) {
+        return { sent: false, statusCode: 409, error: 'Customer WhatsApp number is unavailable' };
+      }
+      if (customer.isPhoneVerified !== true) {
+        return { sent: false, statusCode: 409, error: 'Customer WhatsApp number is not verified' };
+      }
+
+      const safeValue = (value) => String(value || 'N/A').replace(/[\r\n]+/g, ' ').slice(0, 200);
+      const timestamp = payment.placedAt
+        ? new Date(payment.placedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+        : 'N/A';
+      const message = [
+        '*YOUPI PG payment update*',
+        '',
+        `Status: ${safeValue(payment.status)}`,
+        `Order ID: ${safeValue(payment.orderId)}`,
+        `Payment ID: ${safeValue(payment.paymentId || paymentId)}`,
+        `Amount: ${safeValue(payment.currency || 'INR')} ${safeValue(payment.amount)}`,
+        `Payment mode: ${safeValue(payment.method)}`,
+        `UTR / bank reference: ${safeValue(payment.utr)}`,
+        `Date/time: ${safeValue(timestamp)}`,
+        `Product: ${safeValue(payment.metadata?.packName)}`,
+        `Coins: ${safeValue(payment.metadata?.coins)}`,
+        `Reason: ${safeValue(payment.metadata?.cancelledReason || payment.metadata?.reason)}`,
+        `Customer: ${safeValue(customer.name || customer.fullName)}`,
+        `WhatsApp: ${safeValue(phoneNumber)}`,
+        `Email: ${safeValue(customer.email)}`
+      ].join('\n');
+
+      const sendResponse = await fetch(new URL('/api/v1/admin/whatsapp/test-message', this.gatewayApiUrl), {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${getAdminToken()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ to: phoneNumber, message })
+      });
+      const sendResult = await sendResponse.json().catch(() => ({}));
+      if (!sendResponse.ok || sendResult.success !== true || sendResult.delivered !== true) {
+        throw new Error(sendResult.error || sendResult.message || `WhatsApp delivery failed (HTTP ${sendResponse.status})`);
+      }
+
+      return { sent: true, status: payment.status };
+    })();
+
+    this.paymentNotifications.set(orderId, notification);
+    try {
+      const result = await notification;
+      if (!result.sent) this.paymentNotifications.delete(orderId);
+      return result;
+    } catch (err) {
+      this.paymentNotifications.delete(orderId);
+      throw err;
+    }
   }
 
   createServer() {
@@ -329,6 +416,39 @@ export class CoinWalletStoreServer {
         return;
       }
 
+      // POST /api/payment-notification (terminal status page requests a server-verified WhatsApp update)
+      if (pathname === '/api/payment-notification' && method === 'POST') {
+        let body = '';
+        req.on('data', chunk => { body += chunk; });
+        req.on('end', async () => {
+          let orderId;
+          try {
+            orderId = JSON.parse(body || '{}').orderId;
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid JSON request body' }));
+            return;
+          }
+
+          if (typeof orderId !== 'string' || !orderId.trim()) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'orderId is required' }));
+            return;
+          }
+
+          try {
+            const result = await this.notifyCustomerPaymentStatus(orderId.trim());
+            res.writeHead(result.sent ? 200 : result.statusCode, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(result));
+          } catch (err) {
+            console.error(`[Coin Wallet Store] WhatsApp payment notification failed for order ${orderId}: ${err.message}`);
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ sent: false, error: 'Unable to send WhatsApp payment notification' }));
+          }
+        });
+        return;
+      }
+
       // POST /api/checkout (Customer clicks purchase pack)
       if (pathname === '/api/checkout' && method === 'POST') {
         let body = '';
@@ -460,23 +580,35 @@ export class CoinWalletStoreServer {
       if ((pathname === '/api/webhook' || pathname === '/webhook') && method === 'POST') {
         let rawBody = '';
         req.on('data', chunk => { rawBody += chunk; });
-        req.on('end', () => {
+        req.on('end', async () => {
           const signature = req.headers['x-gateway-signature'];
 
           try {
             // Verify HMAC-SHA256 signature using merchant SDK
             const event = this.paymentClient.verifyWebhook(rawBody, signature);
+            const eventStatus = event.event || event.status;
+            const orderId = event.orderId || event.data?.orderId;
 
             const paidMethod = event.method || event.data?.method;
             // COD / counter 'SUCCESS' means an order was placed, not that money arrived.
-            if ((event.event === 'SUCCESS' || event.status === 'SUCCESS') && (!paidMethod || paidMethod === 'UPI')) {
-              const orderId = event.orderId || event.data?.orderId;
+            if (eventStatus === 'SUCCESS' && (!paidMethod || paidMethod === 'UPI')) {
               const alreadyCredited = this.transactionHistory.some(t => t.orderId === orderId);
               if (!alreadyCredited) {
                 const coinsToAdd = Number(event.metadata?.coins || event.data?.metadata?.coins) || 100;
                 const packName = event.metadata?.packName || event.data?.metadata?.packName || 'Coin Pack';
                 this.creditCoins(orderId, coinsToAdd, packName);
                 console.log(`[Coin Wallet Store] Webhook received! Credited ${coinsToAdd} coins for Order ${orderId}. New balance: ${this.walletCoins}`);
+              }
+            }
+
+            if (orderId && ['SUCCESS', 'FAILED', 'CANCELLED', 'EXPIRED'].includes(eventStatus)) {
+              try {
+                const notification = await this.notifyCustomerPaymentStatus(orderId);
+                if (!notification.sent && !notification.alreadySent) {
+                  console.warn(`[Coin Wallet Store] WhatsApp notification skipped for order ${orderId}: ${notification.error}`);
+                }
+              } catch (err) {
+                console.error(`[Coin Wallet Store] WhatsApp notification failed for order ${orderId}: ${err.message}`);
               }
             }
 

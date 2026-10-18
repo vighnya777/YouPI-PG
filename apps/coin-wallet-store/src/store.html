@@ -971,7 +971,7 @@
   <!-- STICKY MAIN HEADER -->
   <header>
     <div class="header-inner">
-      <a href="/" class="brand-group">
+      <a href="/store/" class="brand-group">
         <div class="brand-logo-badge">⚡</div>
         <div class="brand-text">
           <span class="brand-title">YOUPI Store</span>
@@ -983,7 +983,7 @@
         <a href="#outcome-pages" class="btn-admin-link">🚦 Outcome Pages</a>
         <a href="#developer-guide" class="btn-admin-link" style="background:#eff6ff; color:#2563eb; border-color:#bfdbfe;">📖 Developer Guide</a>
         <a href="/openapi.yaml" target="_blank" class="btn-admin-link">⚙️ OpenAPI</a>
-        <a href="/wallet" class="btn-admin-link" style="background:#1e293b; color:#ffffff; border-color:#334155;">🪙 Wallet (<span id="topWalletBalance">50</span>)</a>
+        <a href="/store/wallet" class="btn-admin-link" style="background:#1e293b; color:#ffffff; border-color:#334155;">🪙 Wallet (<span id="topWalletBalance">50</span>)</a>
       </nav>
     </div>
   </header>
@@ -1075,11 +1075,11 @@
                   data-currency="INR"
                   data-name="YOUPI Store"
                   data-description="YOUPI PG Enterprise Suite Top-Up"
-                  data-success-url="/order-success"
-                  data-failed-url="/order-failed"
-                  data-suspicious-url="/order-suspicious"
-                  data-expired-url="/order-expired"
-                  data-cancelled-url="/order-cancelled"
+                  data-success-url="/store/order-success"
+                  data-failed-url="/store/order-failed"
+                  data-suspicious-url="/store/order-suspicious"
+                  data-expired-url="/store/order-expired"
+                  data-cancelled-url="/store/order-cancelled"
                   onclick="startGatewayPurchase()">
             <span>⚡ Buy Now with YOUPI PG · <span id="btnAmountDisplay">₹1.00</span></span>
           </button>
@@ -1353,7 +1353,7 @@
               Payment verified by banking observers. Order marked paid and provisioned.
             </p>
           </div>
-          <a href="/order-success?order_id=ORD-SUCCESS-TEST&amount=499.00&utr=987654321012&mode=UPI" class="btn" style="background:#16a34a; color:#ffffff; font-size:0.85rem; padding:0.6rem; text-decoration:none; text-align:center; border-radius:8px; font-weight:700;">
+          <a href="/store/order-success?order_id=ORD-SUCCESS-TEST&amount=499.00&utr=987654321012&mode=UPI" class="btn" style="background:#16a34a; color:#ffffff; font-size:0.85rem; padding:0.6rem; text-decoration:none; text-align:center; border-radius:8px; font-weight:700;">
             Preview Success Page →
           </a>
         </div>
@@ -1369,7 +1369,7 @@
               Transaction declined or not confirmed. Informs customer no funds were lost.
             </p>
           </div>
-          <a href="/order-failed?order_id=ORD-FAILED-TEST&reason=UPI_CONFIRMATION_TIMEOUT" class="btn" style="background:#dc2626; color:#ffffff; font-size:0.85rem; padding:0.6rem; text-decoration:none; text-align:center; border-radius:8px; font-weight:700;">
+          <a href="/store/order-failed?order_id=ORD-FAILED-TEST&reason=UPI_CONFIRMATION_TIMEOUT" class="btn" style="background:#dc2626; color:#ffffff; font-size:0.85rem; padding:0.6rem; text-decoration:none; text-align:center; border-radius:8px; font-weight:700;">
             Preview Failed Page →
           </a>
         </div>
@@ -1385,7 +1385,7 @@
               Flagged by gateway security systems. Held for manual compliance review.
             </p>
           </div>
-          <a href="/order-suspicious?order_id=ORD-SUSPICIOUS-TEST" class="btn" style="background:#d97706; color:#ffffff; font-size:0.85rem; padding:0.6rem; text-decoration:none; text-align:center; border-radius:8px; font-weight:700;">
+          <a href="/store/order-suspicious?order_id=ORD-SUSPICIOUS-TEST" class="btn" style="background:#d97706; color:#ffffff; font-size:0.85rem; padding:0.6rem; text-decoration:none; text-align:center; border-radius:8px; font-weight:700;">
             Preview Review Page →
           </a>
         </div>
@@ -1401,7 +1401,7 @@
               5-minute session window elapsed. Slot auto-released for next customer.
             </p>
           </div>
-          <a href="/order-expired?order_id=ORD-EXPIRED-TEST" class="btn" style="background:#475569; color:#ffffff; font-size:0.85rem; padding:0.6rem; text-decoration:none; text-align:center; border-radius:8px; font-weight:700;">
+          <a href="/store/order-expired?order_id=ORD-EXPIRED-TEST" class="btn" style="background:#475569; color:#ffffff; font-size:0.85rem; padding:0.6rem; text-decoration:none; text-align:center; border-radius:8px; font-weight:700;">
             Preview Expired Page →
           </a>
         </div>
@@ -1417,7 +1417,7 @@
               User dismissed modal or requested cancellation before payment.
             </p>
           </div>
-          <a href="/order-cancelled?order_id=ORD-CANCELLED-TEST" class="btn" style="background:#64748b; color:#ffffff; font-size:0.85rem; padding:0.6rem; text-decoration:none; text-align:center; border-radius:8px; font-weight:700;">
+          <a href="/store/order-cancelled?order_id=ORD-CANCELLED-TEST" class="btn" style="background:#64748b; color:#ffffff; font-size:0.85rem; padding:0.6rem; text-decoration:none; text-align:center; border-radius:8px; font-weight:700;">
             Preview Cancelled Page →
           </a>
         </div>
@@ -1487,15 +1487,15 @@
   window.addEventListener('youpi:payment:success', (e) =&gt; {
     const { order_id, amount_received, utr, payment_mode } = e.detail;
     console.log(`Payment confirmed for Order #${order_id}. UTR: ${utr}`);
-    window.location.href = `/order-success?order_id=${order_id}&amount=${amount_received}&utr=${utr}`;
+    window.location.href = `/store/order-success?order_id=${order_id}&amount=${amount_received}&utr=${utr}`;
   });
 
   window.addEventListener('youpi:payment:failed', (e) =&gt; {
-    window.location.href = `/order-failed?order_id=${e.detail.order_id}&reason=${e.detail.reason}`;
+    window.location.href = `/store/order-failed?order_id=${e.detail.order_id}&reason=${e.detail.reason}`;
   });
 
   window.addEventListener('youpi:payment:suspicious', (e) =&gt; {
-    window.location.href = `/order-suspicious?order_id=${e.detail.order_id}`;
+    window.location.href = `/store/order-suspicious?order_id=${e.detail.order_id}`;
   });
 &lt;/script&gt;</code></pre>
       </div>
@@ -1712,7 +1712,6 @@ app.post('/api/youpi-webhook', express.raw({ type: 'application/json' }), (req, 
       if (modal) {
         modal.classList.remove('active');
       }
-    }
     }
 
     // --- AMOUNT MODIFIER & BUY BOX ---
