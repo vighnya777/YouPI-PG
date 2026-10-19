@@ -1,16 +1,20 @@
-
-name: YouPI-PG Android Universal Release
+name: YouPI-PG Universal Release APK
 
 on:
   push:
     branches:
       - main
       - master
-    tags:
-      - "v*"
     paths:
       - "apps/android-observer-app/**"
       - ".github/workflows/android-apk.yml"
+    tags-ignore:
+      - "v*"
+
+  push:
+    tags:
+      - "v*"
+
   workflow_dispatch:
 
 permissions:
@@ -22,13 +26,12 @@ concurrency:
 
 jobs:
   build:
-    name: Build and Sign Universal APK
-    runs-on: ubuntu-latest
+    name: Build, Sign and Publish APK
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
 
-    defaults:
-      run:
-        working-directory: apps/android-observer-app
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
 
     steps:
       - name: Checkout repository
@@ -40,99 +43,133 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.2.1
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.2.1"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # Do not use android-actions/setup-android here.
+      # It attempts to install the obsolete "tools" SDK package.
       - name: Install Android SDK components
-        run: |
-          sdkmanager "platform-tools" "platforms;android-34" \
-            "build-tools;34.0.0"
-
-      - name: Check Android project
-        run: |
-          test -f settings.gradle.kts
-          test -f build.gradle.kts
-          test -f app/build.gradle.kts
-          test -f app/src/main/AndroidManifest.xml
-
-      - name: Build release APK
-        run: |
-          gradle --no-daemon --stacktrace :app:assembleRelease
-
-      - name: Locate unsigned release APK
-        id: apk
         shell: bash
         run: |
-          APK="app/build/outputs/apk/release/app-release-unsigned.apk"
+          set -euo pipefail
 
-          if [ ! -f "$APK" ]; then
-            echo "Expected APK not found. Available APK files:"
-            find app/build/outputs -type f -name "*.apk" || true
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
+            -type f -name sdkmanager -print -quit)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: Android SDK sdkmanager was not found."
+            find "$ANDROID_HOME" -maxdepth 4 -type f \
+              -name sdkmanager -print || true
             exit 1
           fi
 
-          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
 
-      - name: Decode release keystore
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
+      - name: Validate Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f apps/android-observer-app/settings.gradle.kts
+          test -f apps/android-observer-app/build.gradle.kts
+          test -f apps/android-observer-app/app/build.gradle.kts
+          test -f apps/android-observer-app/app/src/main/AndroidManifest.xml
+
+      - name: Build Release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gradle \
+            --no-daemon \
+            --stacktrace \
+            -p apps/android-observer-app \
+            :app:assembleRelease
+
+      - name: Locate Release APK
+        id: apk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK_DIR="apps/android-observer-app/app/build/outputs/apk/release"
+
+          mapfile -t APKS < <(
+            find "$APK_DIR" -maxdepth 1 -type f -name "*.apk"
+          )
+
+          if [ "${#APKS[@]}" -ne 1 ]; then
+            echo "Expected exactly one Release APK."
+            find "$APK_DIR" -type f -print || true
+            exit 1
+          fi
+
+          echo "path=${APKS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Decode signing keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        shell: bash
         run: |
-          test -n "$KEYSTORE_BASE64" || {
-            echo "Missing GitHub Secret: KEYSTORE_BASE64"
-            exit 1
-          }
+          set -euo pipefail
 
-          echo "$KEYSTORE_BASE64" | base64 --decode \
-            > "$RUNNER_TEMP/youpi-release.jks"
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "Missing KEYSTORE_BASE64 GitHub Secret."
+            exit 1
+          fi
+
+          printf '%s' "$KEYSTORE_BASE64" |
+            base64 --decode > "$RUNNER_TEMP/youpi-release.jks"
 
           test -s "$RUNNER_TEMP/youpi-release.jks"
 
-      - name: Sign universal APK
+      - name: Sign and verify APK
         env:
           STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        shell: bash
         run: |
           set -euo pipefail
 
-          test -n "$STORE_PASSWORD"
-          test -n "$KEY_ALIAS"
-          test -n "$KEY_PASSWORD"
-
-          APK="${{ steps.apk.outputs.path }}"
-          SIGNED="$RUNNER_TEMP/YouPI-PG-universal-release.apk"
+          : "${STORE_PASSWORD:?Missing KEYSTORE_PASSWORD Secret}"
+          : "${KEY_ALIAS:?Missing KEY_ALIAS Secret}"
+          : "${KEY_PASSWORD:?Missing KEY_PASSWORD Secret}"
 
           BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
+          INPUT_APK="${{ steps.apk.outputs.path }}"
+          OUTPUT_DIR="release-output"
+          ALIGNED_APK="$RUNNER_TEMP/youpi-aligned.apk"
+          SIGNED_APK="$OUTPUT_DIR/YouPI-PG-universal-release.apk"
+
+          mkdir -p "$OUTPUT_DIR"
 
           "$BUILD_TOOLS/zipalign" -f -p 4 \
-            "$APK" "$RUNNER_TEMP/aligned.apk"
+            "$INPUT_APK" "$ALIGNED_APK"
 
           "$BUILD_TOOLS/apksigner" sign \
             --ks "$RUNNER_TEMP/youpi-release.jks" \
             --ks-key-alias "$KEY_ALIAS" \
             --ks-pass env:STORE_PASSWORD \
             --key-pass env:KEY_PASSWORD \
-            --out "$SIGNED" \
-            "$RUNNER_TEMP/aligned.apk"
+            --out "$SIGNED_APK" \
+            "$ALIGNED_APK"
 
-          "$BUILD_TOOLS/apksigner" verify --verbose "$SIGNED"
+          "$BUILD_TOOLS/apksigner" verify --verbose "$SIGNED_APK"
 
-          mkdir -p ../../release-output
-          cp "$SIGNED" ../../release-output/YouPI-PG-universal-release.apk
+          "$BUILD_TOOLS/zipalign" -c -v 4 "$SIGNED_APK"
 
-      - name: Generate SHA256 checksum
-        working-directory: .
-        run: |
-          cd release-output
-          sha256sum YouPI-PG-universal-release.apk \
-            > YouPI-PG-universal-release.apk.sha256
+          sha256sum "$SIGNED_APK" \
+            > "$OUTPUT_DIR/YouPI-PG-universal-release.apk.sha256"
 
-      - name: Upload APK artifact
+      - name: Upload Release APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: YouPI-PG-Universal-Release-APK
@@ -146,8 +183,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
-        working-directory: .
+        shell: bash
         run: |
+          set -euo pipefail
+
           gh release create "$GITHUB_REF_NAME" \
             release-output/YouPI-PG-universal-release.apk \
             release-output/YouPI-PG-universal-release.apk.sha256 \
