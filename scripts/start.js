@@ -7,6 +7,8 @@ import { startControlCenter } from '../apps/control-center/src/index.js';
 import { resolveRuntimeUrls } from '../packages/common/src/runtime-config.js';
 import { startCloudflaredSafely } from '../packages/common/src/tunnel-command.js';
 import { resolvePublicGatewayPorts, startPublicGateway } from '../apps/public-gateway/src/server.js';
+import { getAdminToken } from '../packages/common/src/secrets.js';
+import { isHostedDeployment } from './deployment-context.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -100,6 +102,10 @@ console.log(`• Payment Help:         ${runtimeUrls.helpUrl}`);
 console.log(`• Demo Store (Opt):     ${runtimeUrls.storeUrl}`);
 console.log(`• Gmail OAuth Callback: ${runtimeUrls.gmailRedirectUri}`);
 console.log(`• Public Gateway Port:  ${publicGateway.port}`);
+if (isHostedDeployment()) {
+  console.log(`• Admin API token:      ${getAdminToken()}`);
+  console.log('  Restrict hosting log access to administrators.');
+}
 console.log('----------------------------------------------------');
 console.log('OBSERVATION CHANNELS:');
 console.log('• Android SMS Observer: Native APK -> Public Payment API');

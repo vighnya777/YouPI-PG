@@ -5,7 +5,7 @@ const DEFAULT_PORTS = Object.freeze({
   checkout: Number(process.env.CHECKOUT_PORTAL_PORT || 7000),
   admin: Number(process.env.MERCHANT_ADMIN_PORT || 6001),
   gmail: Number(process.env.GMAIL_OBSERVER_PORT || 6003),
-  store: Number(process.env.COIN_WALLET_STORE_PORT || 5000)
+  store: Number(process.env.COIN_STORE_PORT || process.env.COIN_WALLET_STORE_PORT || 5000)
 });
 
 const STORE_ROOT_ROUTES = new Set([

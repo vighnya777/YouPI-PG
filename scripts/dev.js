@@ -7,6 +7,8 @@ import { startControlCenter } from '../apps/control-center/src/index.js';
 import { startCloudflaredSafely } from '../packages/common/src/tunnel-command.js';
 import { resolveRuntimeUrls } from '../packages/common/src/runtime-config.js';
 import { resolvePublicGatewayPorts, startPublicGateway } from '../apps/public-gateway/src/server.js';
+import { getAdminToken } from '../packages/common/src/secrets.js';
+import { isHostedDeployment } from './deployment-context.js';
 
 if (!process.env.YOUPI_MODE) process.env.YOUPI_MODE = 'localhost';
 if (!process.env.NODE_ENV) process.env.NODE_ENV = 'development';
@@ -72,8 +74,12 @@ const publicGateway = await startPublicGateway(publicPort);
 console.log('====================================================');
 console.log('🟢 YOUPI PUBLIC GATEWAY ONLINE');
 console.log('====================================================');
-console.log(`• Single local origin:  ${runtimeUrls.publicUrl}`);
+console.log(`• Public origin:        ${runtimeUrls.publicUrl}`);
 console.log(`• Merchant Admin:       ${runtimeUrls.adminUrl}`);
+if (isHostedDeployment()) {
+  console.log(`• Admin API token:      ${getAdminToken()}`);
+  console.log('  Restrict hosting log access to administrators.');
+}
 console.log(`• Payment API:          ${runtimeUrls.apiUrl}/api`);
 console.log(`• Checkout:             ${runtimeUrls.checkoutUrl}/checkout/:id`);
 console.log(`• Demo Store:           ${runtimeUrls.storeUrl}`);
