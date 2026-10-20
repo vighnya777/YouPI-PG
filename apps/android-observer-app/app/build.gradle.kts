@@ -40,17 +40,19 @@ android {
 
 // Java sources that have a Kotlin counterpart are excluded from javac
 // so the same class is not compiled twice.
-tasks.withType<JavaCompile>().configureEach {
-    setSource(source.matching {
-        exclude(
-            "**/com/youpi/observer/ApiClient.java",
-            "**/com/youpi/observer/BootReceiver.java",
-            "**/com/youpi/observer/ForegroundService.java",
-            "**/com/youpi/observer/MainActivity.java",
-            "**/com/youpi/observer/PaymentNotificationListenerService.java",
-            "**/com/youpi/observer/SmsReceiver.java"
-        )
-    })
+afterEvaluate {
+    tasks.withType<JavaCompile>().configureEach {
+        setSource(source.matching {
+            exclude(
+                "**/com/youpi/observer/ApiClient.java",
+                "**/com/youpi/observer/BootReceiver.java",
+                "**/com/youpi/observer/ForegroundService.java",
+                "**/com/youpi/observer/MainActivity.java",
+                "**/com/youpi/observer/PaymentNotificationListenerService.java",
+                "**/com/youpi/observer/SmsReceiver.java"
+            )
+        })
+    }
 }
 
 dependencies {
