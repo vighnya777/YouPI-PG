@@ -147,7 +147,7 @@
 <body>
 
 <header>
-  <a href="/" class="brand">
+  <a href="/store/" class="brand">
     <span>⚡ YOUPI Store</span>
   </a>
   <span style="font-size: 0.82rem; color: #64748b; font-weight: 600;">Reference Implementation Demo</span>
@@ -179,7 +179,7 @@
     </div>
 
     <div class="btn-row">
-      <a href="/" class="btn btn-primary">Try Again</a>
+      <a href="/store/" class="btn btn-primary">Try Again</a>
       <a href="mailto:support@youpipg.com" class="btn btn-secondary">Contact Payment Support</a>
     </div>
   </div>
@@ -195,6 +195,17 @@
   if (params.get('reason')) {
     const el = document.getElementById('valReason');
     if (el && (el.textContent === '{{REASON}}' || !el.textContent)) el.textContent = params.get('reason');
+  }
+  const orderId = params.get('order_id') || params.get('orderId');
+  if (orderId) {
+    fetch('/api/payment-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId }),
+      keepalive: true
+    }).then(response => {
+      if (!response.ok) console.warn('[YOUPI Store] WhatsApp payment notification was not sent.');
+    }).catch(() => console.warn('[YOUPI Store] WhatsApp payment notification could not be reached.'));
   }
 </script>
 

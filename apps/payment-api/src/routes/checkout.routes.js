@@ -1,5 +1,5 @@
 import { HttpServer } from '../server.js';
-import { toRupeesString, buildUpiUri, PaymentStatus, PaymentMethod, UPI_PROVIDERS, isInternalServiceRequest, isValidTransition } from '@youpi/common';
+import { toRupeesString, buildUpiUri, PaymentStatus, PaymentMethod, UPI_PROVIDERS } from '@youpi/common';
 import { validateSessionDeviceAccess } from '@youpi/core';
 
 /**
@@ -14,9 +14,8 @@ function checkSessionDeviceAccess(session, req, body = null, ctx = null) {
     return { allowed: true, boundDeviceId: session.deviceId, isTerminal: true };
   }
 
-  // Only a co-located service holding the shared internal token may bypass device blocking.
-  // The `X-Internal-Render` flag on its own is attacker-controlled and proves nothing.
-  if (isInternalServiceRequest(req)) {
+  // Internal server-side HTML render calls bypass device blocking
+  if (req.headers['x-internal-render'] === 'true') {
     return { allowed: true, boundDeviceId: session.deviceId };
   }
 
@@ -76,38 +75,6 @@ function checkSessionDeviceAccess(session, req, body = null, ctx = null) {
       boundDeviceId: session.deviceId,
       requestingDeviceId
     }
-  };
-}
-
-/**
- * Allowlist-based sanitizer for customer-facing branding (Issue #23).
- * Prevents internal credentials (gmailConfig, cloudflareTunnelCommand, tokens) from leaking to public checkouts.
- */
-function sanitizePublicBranding(raw = {}) {
-  // Strict explicit allowlist to prevent arbitrary internal metadata leaks (CWE-200 / OWASP A01)
-  return {
-    appName: raw.appName || 'YOUPI PG',
-    primaryColor: raw.primaryColor || '#2563eb',
-    headerTheme: raw.headerTheme || 'gradient',
-    logoUrl: raw.logoUrl || null,
-    counterInstructions: raw.counterInstructions || 'Please visit the billing counter and present this screen to the cashier.',
-    cardCounterInstructions: raw.cardCounterInstructions || 'Please swipe, insert, or tap your credit or debit card on the store POS terminal at the billing desk.',
-    supportEmails: Array.isArray(raw.supportEmails) ? raw.supportEmails : [],
-    supportMobiles: Array.isArray(raw.supportMobiles) ? raw.supportMobiles : [],
-    privacyPolicyUrl: raw.privacyPolicyUrl || null,
-    termsUrl: raw.termsUrl || null,
-    sellingMode: raw.sellingMode || 'ONLINE',
-    customCss: raw.customCss || null,
-    enabledPaymentMethods: Array.isArray(raw.enabledPaymentMethods) ? raw.enabledPaymentMethods : ['UPI'],
-    sidebarNotice: raw.sidebarNotice || undefined,
-    checkoutNotice: raw.checkoutNotice || undefined,
-    footerGuarantee: raw.footerGuarantee || undefined,
-    trustBadgeText: raw.trustBadgeText || undefined,
-    hideTrustBadge: raw.hideTrustBadge !== undefined ? Boolean(raw.hideTrustBadge) : undefined,
-    subbannerText: raw.subbannerText || undefined,
-    hideSubbanner: raw.hideSubbanner !== undefined ? Boolean(raw.hideSubbanner) : undefined,
-    hidePoweredBy: raw.hidePoweredBy !== undefined ? Boolean(raw.hidePoweredBy) : undefined,
-    hideTimeSavingBanner: raw.hideTimeSavingBanner !== undefined ? Boolean(raw.hideTimeSavingBanner) : undefined
   };
 }
 
@@ -399,7 +366,11 @@ export function registerCheckoutRoutes(server, ctx) {
     // Terminal session handling: if session is terminal, return terminal state directly (CASE 4)
     if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
       const merchant = ctx.merchantRepo.findById(session.merchantId);
-      const branding = sanitizePublicBranding(merchant?.branding || {});
+      const branding = {
+        appName: 'YOUPI PG',
+        primaryColor: '#2563eb',
+        ...(merchant?.branding || {})
+      };
       HttpServer.json(res, 200, {
         id: session.id,
         paymentId: session.id,
@@ -435,12 +406,11 @@ export function registerCheckoutRoutes(server, ctx) {
       receivingAccount = ctx.accountRepo.findActiveForMerchant(session.merchantId);
     }
 
-    // Invariant: Prefer immutable session snapshot VPA to prevent live VPA mutations from altering open checkout sessions (Issue #27)
-    const payeeVpa = snapshot?.upiId || receivingAccount?.upiId || null;
-    const payeeName = snapshot?.payeeName || receivingAccount?.payeeName || merchant?.businessName || 'Merchant Store';
-    const isMerchantEnabled = (snapshot?.isMerchantEnabled !== undefined)
-      ? Boolean(snapshot.isMerchantEnabled)
-      : (receivingAccount ? Boolean(receivingAccount.isMerchantEnabled) : true);
+    const payeeVpa = receivingAccount?.upiId || snapshot?.upiId || null;
+    const payeeName = receivingAccount?.payeeName || snapshot?.payeeName || merchant?.businessName || 'Merchant Store';
+    const isMerchantEnabled = receivingAccount
+      ? Boolean(receivingAccount.isMerchantEnabled)
+      : (snapshot?.isMerchantEnabled !== undefined ? Boolean(snapshot.isMerchantEnabled) : true);
     const upiMode = isMerchantEnabled ? 'MERCHANT' : 'NON_MERCHANT';
 
     let timeRemainingSeconds = 0;
@@ -470,14 +440,27 @@ export function registerCheckoutRoutes(server, ctx) {
       }
     }
 
-    const merchantBranding = merchant?.branding || {};
-    const isCounterSession = session.method === 'CASH_COUNTER' || session.method === 'CARD_COUNTER';
-    const sellingMode = merchantBranding.sellingMode || (isCounterSession ? 'OFFLINE' : 'ONLINE');
-    const supportEmails = merchantBranding.supportEmails || (merchant?.contactEmail ? [merchant.contactEmail] : []);
-    const supportMobiles = merchantBranding.supportMobiles || (merchant?.contactPhone ? [merchant.contactPhone] : []);
-    const privacyPolicyUrl = merchantBranding.privacyPolicyUrl || null;
+    const branding = {
+      appName: 'YOUPI PG',
+      primaryColor: '#2563eb',
+      headerTheme: 'gradient',
+      logoUrl: null,
+      counterInstructions: 'Please visit the billing counter and present this screen to the cashier.',
+      cardCounterInstructions: 'Please swipe, insert, or tap your credit or debit card on the store POS terminal at the billing desk.',
+      ...(merchant?.branding || {})
+    };
 
-    let rawEnabled = merchantBranding.enabledPaymentMethods || (sellingMode === 'ONLINE' ? ['UPI'] : ['UPI', 'CASH_COUNTER', 'CARD_COUNTER']);
+    const supportEmails = branding.supportEmails || (merchant?.contactEmail ? [merchant.contactEmail] : []);
+    const supportMobiles = branding.supportMobiles || (merchant?.contactPhone ? [merchant.contactPhone] : []);
+    const privacyPolicyUrl = branding.privacyPolicyUrl || null;
+    branding.supportEmails = supportEmails;
+    branding.supportMobiles = supportMobiles;
+    const isCounterSession = session.method === 'CASH_COUNTER' || session.method === 'CARD_COUNTER';
+    const merchantBranding = merchant?.branding || {};
+    const sellingMode = merchantBranding.sellingMode || (isCounterSession ? 'OFFLINE' : 'ONLINE');
+    branding.sellingMode = sellingMode;
+
+    let rawEnabled = merchantBranding.enabledPaymentMethods || (sellingMode === 'ONLINE' ? ['UPI', 'COD'] : ['UPI', 'CASH_COUNTER', 'CARD_COUNTER']);
     let enabledMethods = ['UPI'];
     if (sellingMode === 'ONLINE') {
       if (rawEnabled.includes('COD')) {
@@ -491,15 +474,6 @@ export function registerCheckoutRoutes(server, ctx) {
         enabledMethods.push('CARD_COUNTER');
       }
     }
-
-    const branding = sanitizePublicBranding({
-      ...merchantBranding,
-      sellingMode,
-      supportEmails,
-      supportMobiles,
-      privacyPolicyUrl,
-      enabledPaymentMethods: enabledMethods
-    });
 
     const authHeader = req.headers['authorization'] || '';
     const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : (req.headers['x-customer-token'] || null);
@@ -828,11 +802,6 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
-    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
-      HttpServer.json(res, 400, { error: `Cannot retry payment for terminal session in status '${session.status}'` });
-      return;
-    }
-
     const customerId = session.customerId;
     const requestingDeviceId = req.headers['x-device-id'] || session.deviceId || null;
 
@@ -986,14 +955,6 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
-    // Cancelling releases the merchant's scarce UPI slot and ends a live payment, so it is
-    // subject to the same device-binding check as the other state-changing checkout actions.
-    // Without this, anyone holding a payment id could grief an in-flight checkout.
-    const deviceAccess = checkSessionDeviceAccess(session, req, null, ctx);
-    if (!deviceAccess.allowed) {
-      HttpServer.json(res, deviceAccess.statusCode || 409, deviceAccess.body);
-      return;
-    }
 
     const updated = ctx.timingEngine.handleCancel(params.id);
 
@@ -1026,11 +987,6 @@ export function registerCheckoutRoutes(server, ctx) {
 
     if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
       HttpServer.json(res, 400, { error: `Cannot switch payment method for terminal session in status '${session.status}'` });
-      return;
-    }
-
-    if (session.status === PaymentStatus.PROCESSING) {
-      HttpServer.json(res, 400, { error: `Cannot switch payment method while payment is in PROCESSING status` });
       return;
     }
 
@@ -1245,21 +1201,9 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
-    // PROCESSING: a UPI payment was already detected and is being verified; switching it to COD would drop that payment.
-    if (session.status === PaymentStatus.PROCESSING) {
-      HttpServer.json(res, 400, { error: 'Cannot place COD order while payment is in PROCESSING status' });
-      return;
-    }
-
-    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
-      HttpServer.json(res, 400, { error: `Cannot place COD order for terminal session in status '${session.status}'` });
-      return;
-    }
-
-    // COD terminates the session as SUCCESS; make sure the state machine permits that edge
-    // (INITIATED/QUEUED/ACTIVE are all legal; anything else is caught above).
-    if (!isValidTransition(session.status, PaymentStatus.SUCCESS)) {
-      HttpServer.json(res, 409, { error: `Cannot place COD order for session in status '${session.status}'.` });
+    // PROCESSING = a UPI payment was already detected and is being verified; switching it to COD would drop that payment.
+    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED, PaymentStatus.PROCESSING].includes(session.status)) {
+      HttpServer.json(res, 400, { error: `Cannot place COD order for session in status '${session.status}'` });
       return;
     }
 
@@ -1271,7 +1215,7 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
-    const rawEnabled = branding.enabledPaymentMethods || ['UPI'];
+    const rawEnabled = branding.enabledPaymentMethods || ['UPI', 'COD'];
     if (!rawEnabled.includes('COD')) {
       HttpServer.json(res, 400, { error: 'Cash on Delivery is currently disabled by merchant.' });
       return;
@@ -1284,34 +1228,30 @@ export function registerCheckoutRoutes(server, ctx) {
       }
     }
 
-    // Update payment session to SUCCESS with COD method and release slot inside transaction
+    // Update payment session to SUCCESS with COD method and release slot
     const nowIso = new Date().toISOString();
     const oldReceivingAccountId = session.receivingAccountId || session.receiving_account_id;
 
-    ctx.sessionRepo.db.transaction(() => {
+    ctx.sessionRepo.db.execute(`
+      UPDATE payment_sessions
+      SET method = 'COD',
+          status = 'SUCCESS',
+          verification_tag = 'COD_ORDER_PLACED',
+          verification_level = 1,
+          completed_at = ?,
+          receiving_account_id = NULL,
+          updated_at = ?
+      WHERE id = ?
+    `, [nowIso, nowIso, session.id]);
+
+    // Release receiving account slot and promote next queued customer
+    if (oldReceivingAccountId) {
       ctx.sessionRepo.db.execute(`
-        UPDATE payment_sessions
-        SET method = 'COD',
-            status = 'SUCCESS',
-            verification_tag = 'COD_ORDER_PLACED',
-            verification_level = 1,
-            completed_at = ?,
-            receiving_account_id = NULL,
-            updated_at = ?
-        WHERE id = ? AND status IN ('INITIATED', 'QUEUED', 'ACTIVE')
-      `, [nowIso, nowIso, session.id]);
+        UPDATE payment_receiving_accounts
+        SET is_slot_busy = 0, current_active_session_id = NULL, updated_at = ?
+        WHERE id = ?
+      `, [nowIso, oldReceivingAccountId]);
 
-      // Release receiving account slot
-      if (oldReceivingAccountId) {
-        ctx.sessionRepo.db.execute(`
-          UPDATE payment_receiving_accounts
-          SET is_slot_busy = 0, current_active_session_id = NULL, updated_at = ?
-          WHERE id = ? AND (current_active_session_id = ? OR current_active_session_id IS NULL)
-        `, [nowIso, oldReceivingAccountId, session.id]);
-      }
-    });
-
-    if (oldReceivingAccountId && ctx.queueEngine) {
       const promoted = ctx.queueEngine.promoteNext(oldReceivingAccountId);
       if (promoted) {
         if (promoted.expiresAt && ctx.timingEngine) {

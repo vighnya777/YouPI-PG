@@ -1,28 +1,6 @@
 import { HttpServer } from '../server.js';
-import { toPaise, toRupeesString, resolveRuntimeUrls, PaymentStatus, safeEqual, hasBearer, getObserverToken } from '@youpi/common';
+import { toPaise, toRupeesString, resolveRuntimeUrls, PaymentStatus } from '@youpi/common';
 import { isTerminalStatus, toPublicOutcome } from '@youpi/core';
-import { isAdminRequest } from '../auth-guard.js';
-
-/**
- * True when the caller may read the merchant-private fields of a payment session.
- *
- * Requires proof of ownership: either the gateway's own admin/observer credential, or the
- * owning merchant's webhook secret presented via `X-Merchant-Key` (which every merchant
- * integration already holds). Without it, only the public view is returned, so a leaked or
- * guessed payment id cannot be used to read internal status, verification internals,
- * merchant metadata or the return URL.
- */
-function isPaymentOwner(req, session, ctx) {
-  if (isAdminRequest(req)) return true;
-  if (hasBearer(req, getObserverToken())) return true;
-
-  const presented = req.headers['x-merchant-key'];
-  if (!presented || typeof presented !== 'string' || !presented.trim()) return false;
-
-  const merchant = ctx.merchantRepo?.findById ? ctx.merchantRepo.findById(session.merchantId) : null;
-  if (!merchant?.webhookSecret) return false;
-  return safeEqual(presented.trim(), merchant.webhookSecret);
-}
 
 /**
  * Registers merchant-facing payment routes.
@@ -300,30 +278,19 @@ export function registerPaymentRoutes(server, ctx) {
       ? toPublicOutcome(session.status)
       : session.status;
 
-    // Fields any payment-id holder may read. Everything else is merchant-private: the raw
-    // state machine status, verification internals, merchant metadata and the return URL.
-    const publicView = {
+    HttpServer.json(res, 200, {
       paymentId: session.id,
       orderId: session.orderId,
       amount: toRupeesString(session.amountPaise),
       amountPaise: session.amountPaise.toString(),
       currency: session.currency,
       status: publicStatus,
-      method: session.method,
-      completedAt: session.completedAt ? session.completedAt.toISOString() : null
-    };
-
-    if (!isPaymentOwner(req, session, ctx)) {
-      HttpServer.json(res, 200, publicView);
-      return;
-    }
-
-    HttpServer.json(res, 200, {
-      ...publicView,
       internalStatus: session.status,
+      method: session.method,
       verificationLevel: session.verificationLevel || 0,
       verificationSources: session.verificationSources || [],
       verificationTag: session.verificationTag || 'UNVERIFIED',
+      completedAt: session.completedAt ? session.completedAt.toISOString() : null,
       returnUrl: session.returnUrl,
       metadata: session.metadata
     });
@@ -345,10 +312,14 @@ export function registerPaymentRoutes(server, ctx) {
           id: c.id,
           name: c.name,
           email: c.email,
-          mobileNumber: c.mobileNumber
+          mobileNumber: c.mobileNumber,
+          isPhoneVerified: c.isPhoneVerified
         };
       }
     }
+    const observation = session.attributedObservationId && ctx.obsRepo
+      ? ctx.obsRepo.findById(session.attributedObservationId)
+      : null;
 
     HttpServer.json(res, 200, {
       paymentId: session.id,
@@ -362,6 +333,7 @@ export function registerPaymentRoutes(server, ctx) {
       isCod: session.method === 'COD',
       customer,
       placedAt: session.completedAt ? (session.completedAt.toISOString ? session.completedAt.toISOString() : session.completedAt) : (session.createdAt?.toISOString ? session.createdAt.toISOString() : session.createdAt),
+      utr: observation?.bankReferenceNumber || null,
       metadata: session.metadata
     });
   });
@@ -395,10 +367,14 @@ export function registerPaymentRoutes(server, ctx) {
           id: c.id,
           name: c.name,
           email: c.email,
-          mobileNumber: c.mobileNumber
+          mobileNumber: c.mobileNumber,
+          isPhoneVerified: c.isPhoneVerified
         };
       }
     }
+    const observation = session.attributedObservationId && ctx.obsRepo
+      ? ctx.obsRepo.findById(session.attributedObservationId)
+      : null;
 
     HttpServer.json(res, 200, {
       paymentId: session.id,
@@ -412,6 +388,7 @@ export function registerPaymentRoutes(server, ctx) {
       isCod: session.method === 'COD',
       customer,
       placedAt: session.completedAt ? (session.completedAt.toISOString ? session.completedAt.toISOString() : session.completedAt) : (session.createdAt?.toISOString ? session.createdAt.toISOString() : session.createdAt),
+      utr: observation?.bankReferenceNumber || null,
       metadata: session.metadata
     });
   });

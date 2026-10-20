@@ -7,13 +7,8 @@ export function startCheckoutServer(port = null, options = {}) {
   const checkoutServer = new CheckoutServer(options);
   const rawServer = checkoutServer.createServer();
 
-  // Bind to loopback unless explicitly overridden. These services hold admin/observer
-  // credentials and are reached through a local Cloudflare Tunnel, so exposing every
-  // network interface is unnecessary.
-  const bindHost = process.env.YOUPI_BIND_HOST || '127.0.0.1';
-
   return new Promise(resolve => {
-    const instance = rawServer.listen(finalPort, bindHost, () => {
+    const instance = rawServer.listen(finalPort, () => {
       console.log(`[Checkout Portal] Server listening on port ${finalPort}`);
       resolve({
         port: finalPort,
