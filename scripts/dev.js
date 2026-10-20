@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { runMigrations } from '../packages/db/src/migrate.js';
 import { startControlCenter } from '../apps/control-center/src/index.js';
+import { startPublicGateway } from '../apps/public-gateway/src/index.js';
 import { startCloudflaredSafely } from '../packages/common/src/tunnel-command.js';
 
 if (!process.env.YOUPI_MODE) process.env.YOUPI_MODE = 'localhost';
@@ -37,6 +38,8 @@ console.log('[*] Starting all modular gateway services...\n');
 
 await cc.processManager.startAll();
 
+const publicGateway = await startPublicGateway();
+
 console.log('====================================================');
 console.log('🟢 ALL SERVICES ONLINE & OPERATIONAL');
 console.log('====================================================');
@@ -62,6 +65,7 @@ const shutdown = async () => {
       }
     } catch {}
   }
+  await publicGateway.close();
   await cc.close();
   console.log('All processes terminated cleanly.');
   process.exit(0);
