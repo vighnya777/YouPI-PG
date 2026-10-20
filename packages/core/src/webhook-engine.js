@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { generateHmac, toRupeesString } from '@youpi/common';
+import { generateHmac, toRupeesString, validateOutboundWebhookUrl } from '@youpi/common';
 import { isTerminalStatus, toPublicOutcome } from './state-machine.js';
 
 export class WebhookEngine {
@@ -28,6 +28,13 @@ export class WebhookEngine {
       return { delivered: false, deliveryId: '', error: 'No webhook URL configured for merchant.' };
     }
 
+    // Re-validate at dispatch time, not only on write: a URL persisted before validation
+    // existed must not be usable to reach loopback/private addresses (SSRF).
+    const endpointCheck = validateOutboundWebhookUrl(merchant.webhookUrl);
+    if (!endpointCheck.valid) {
+      return { delivered: false, deliveryId: '', error: `Webhook delivery blocked: ${endpointCheck.error}` };
+    }
+
     const publicOutcome = isTerminalStatus(event) ? toPublicOutcome(event) : event;
 
     const payloadObj = {
@@ -38,7 +45,9 @@ export class WebhookEngine {
       amountPaise: Number(session.amountPaise),
       currency: session.currency || 'INR',
       method: session.method || 'UPI',
-      completedAt: session.completedAt ? session.completedAt.toISOString() : new Date().toISOString(),
+      verificationTag: session.verificationTag || session.verification_tag || (session.method === 'COD' ? 'COD_ORDER_PLACED' : 'UNVERIFIED'),
+      verificationLevel: session.verificationLevel != null ? Number(session.verificationLevel) : (session.verification_level != null ? Number(session.verification_level) : (session.method === 'COD' ? 1 : 0)),
+      completedAt: session.completedAt ? (typeof session.completedAt.toISOString === 'function' ? session.completedAt.toISOString() : String(session.completedAt)) : new Date().toISOString(),
       metadata: session.metadata || {}
     };
 
@@ -60,10 +69,12 @@ export class WebhookEngine {
     let isSuccessful = false;
 
     try {
-      const res = await fetch(merchant.webhookUrl, {
+      const res = await fetch(endpointCheck.url.toString(), {
         method: 'POST',
         headers,
         body: payloadString,
+        // Never follow redirects: a public URL could otherwise 302 into the internal network.
+        redirect: 'manual',
         signal: AbortSignal.timeout(10000) // 10s timeout
       });
 
@@ -126,6 +137,10 @@ export class WebhookEngine {
       const merchant = this.merchantRepo.findById(item.merchant_id);
       if (!merchant || !item.endpoint_url) continue;
 
+      // Re-validate the stored endpoint before every retry (SSRF guard).
+      const retryEndpoint = validateOutboundWebhookUrl(item.endpoint_url);
+      if (!retryEndpoint.valid) continue;
+
       const signature = generateHmac(item.payload, merchant.webhookSecret);
       const timestamp = Date.now().toString();
 
@@ -134,7 +149,7 @@ export class WebhookEngine {
       let respBody = null;
 
       try {
-        const res = await fetch(item.endpoint_url, {
+        const res = await fetch(retryEndpoint.url.toString(), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -144,6 +159,7 @@ export class WebhookEngine {
             'X-Gateway-Timestamp': timestamp
           },
           body: item.payload,
+          redirect: 'manual',
           signal: AbortSignal.timeout(10000)
         });
         respStatus = res.status;

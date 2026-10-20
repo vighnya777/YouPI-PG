@@ -52,6 +52,7 @@ export function runMigrations(targetDb) {
   try { db.exec("ALTER TABLE customers ADD COLUMN mobile_number TEXT;"); } catch {}
   try { db.exec("ALTER TABLE customers ADD COLUMN otp_code TEXT;"); } catch {}
   try { db.exec("ALTER TABLE customers ADD COLUMN otp_expires_at TEXT;"); } catch {}
+  try { db.exec("ALTER TABLE customers ADD COLUMN otp_attempts INTEGER NOT NULL DEFAULT 0;"); } catch {}
   try { db.exec("ALTER TABLE customers ADD COLUMN is_phone_verified INTEGER DEFAULT 0;"); } catch {}
   try { db.exec("ALTER TABLE customers ADD COLUMN ban_reason TEXT;"); } catch {}
   try { db.exec("ALTER TABLE customers ADD COLUMN banned_at TEXT;"); } catch {}
@@ -105,6 +106,7 @@ export function runMigrations(targetDb) {
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_devices_fingerprint ON devices (fingerprint_hash);"); } catch {}
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_devices_token ON devices (device_token);"); } catch {}
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_payment_sessions_device ON payment_sessions (device_id);"); } catch {}
+  try { db.exec("CREATE INDEX IF NOT EXISTS idx_observations_bank_ref ON payment_observations (bank_reference_number);"); } catch {}
 
   // Seed default merchant if empty
   const merchantRepo = new MerchantRepository(db);
@@ -153,17 +155,22 @@ export function runMigrations(targetDb) {
     });
   }
 
-  // Seed default customer if none exists
-  const customerRepo = new CustomerRepository(db);
-  const existingCust = customerRepo.findByMobile('9212339720');
-  if (!existingCust) {
-    customerRepo.create({
-      id: '00000000-0000-0000-0000-000000000002',
-      name: 'Gaurav Mehra',
-      email: 'gauravmehra09876@gmail.com',
-      mobileNumber: '9212339720',
-      isPhoneVerified: true
-    });
+  // Demo customer seeding is opt-in and never carries real personal data.
+  // Previously this unconditionally created a customer with a real name, phone number and
+  // email, and flagged the phone as verified — shipping someone's PII (and a pre-authorised
+  // OTP login identity) into every merchant deployment.
+  if (process.env.YOUPI_SEED_DEMO_CUSTOMER === 'true') {
+    const customerRepo = new CustomerRepository(db);
+    const demoMobile = '9000000000';
+    if (!customerRepo.findByMobile(demoMobile)) {
+      customerRepo.create({
+        id: '00000000-0000-0000-0000-000000000002',
+        name: 'Demo Customer',
+        email: 'demo-customer@youpi.local',
+        mobileNumber: demoMobile,
+        isPhoneVerified: false
+      });
+    }
   }
 
   return {

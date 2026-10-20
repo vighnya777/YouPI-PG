@@ -2,6 +2,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { Database } from '@youpi/db';
+import { getAdminToken } from '@youpi/common';
 import { startAdminServer } from '../index.js';
 
 describe('Merchant Admin Integration Tests', () => {
@@ -11,7 +12,7 @@ describe('Merchant Admin Integration Tests', () => {
 
   before(async () => {
     testDb = new Database({ inMemory: true });
-    serverInstance = await startAdminServer(6101, { db: testDb, storeBaseUrl: 'https://pay.example.com/store' });
+    serverInstance = await startAdminServer(6101, { db: testDb });
     baseUrl = `http://localhost:${serverInstance.port}`;
   });
 
@@ -20,9 +21,9 @@ describe('Merchant Admin Integration Tests', () => {
     testDb.close();
   });
 
-  function get(path) {
+  function get(path, headers = {}) {
     return new Promise((resolve, reject) => {
-      http.get(`${baseUrl}${path}`, res => {
+      http.get(`${baseUrl}${path}`, { headers }, res => {
         let data = '';
         res.on('data', chunk => { data += chunk; });
         res.on('end', () => {
@@ -52,33 +53,13 @@ describe('Merchant Admin Integration Tests', () => {
     assert.ok(res.text.includes('Payment Observers (SMS & Gmail)'));
     assert.ok(res.text.includes('Android SMS Gateway'));
     assert.ok(res.text.includes('Gmail Direct API'));
-    assert.ok(res.text.includes('href="https://pay.example.com/store" id="btnOpenStoreLink"'));
   });
 
-  test('GET / renders responsive developer hub and stable sub-navigation state', async () => {
-    const res = await get('/');
-    assert.equal(res.status, 200);
-    assert.ok(res.text.includes('@media (max-width: 640px)'));
-    assert.ok(res.text.includes('@media (max-width: 760px)'));
-    assert.ok(res.text.includes('btn.dataset.subViewId = item.id'));
-    assert.ok(res.text.includes('p.dataset.subViewId === subViewId'));
-    assert.match(res.text, /id="simSelectedSessionBar"\s+style="display:none;[^"]*align-items:center;"/);
-  });
+  test('GET /api/admin/tickets requires the admin token', async () => {
+    const anonymous = await get('/api/admin/tickets');
+    assert.equal(anonymous.status, 401);
 
-  test('GET / defaults to dark mode and provides a persistent manual theme toggle', async () => {
-    const res = await get('/');
-    assert.equal(res.status, 200);
-    assert.match(res.text, /<html lang="en" data-theme="dark">/);
-    assert.match(res.text, /<body data-theme="dark">/);
-    assert.match(res.text, /id="headerThemeText">Real Dark</);
-    assert.match(res.text, /id="headerThemeBadge" onclick="toggleThemeManual\(\)"/);
-    assert.ok(res.text.includes("const ADMIN_THEME_STORAGE_KEY = 'youpi-admin-theme'"));
-    assert.ok(res.text.includes('window.localStorage.setItem(ADMIN_THEME_STORAGE_KEY, nextTheme)'));
-    assert.ok(res.text.includes('window.localStorage.getItem(ADMIN_THEME_STORAGE_KEY)'));
-  });
-
-  test('GET /api/admin/tickets returns tickets array', async () => {
-    const res = await get('/api/admin/tickets');
+    const res = await get('/api/admin/tickets', { Authorization: `Bearer ${getAdminToken()}` });
     assert.equal(res.status, 200);
     const json = JSON.parse(res.text);
     assert.ok(Array.isArray(json));

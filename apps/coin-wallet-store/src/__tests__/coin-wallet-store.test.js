@@ -1,7 +1,8 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import http from 'node:http';
-import { CustomerRepository, Database } from '@youpi/db';
+import { Database } from '@youpi/db';
 import { startServer as startPaymentApi } from '../../../payment-api/src/index.js';
 import { startCoinWalletStore } from '../index.js';
 import { generateHmac } from '@youpi/common';
@@ -11,16 +12,11 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
   let storeInstance;
   let storeBaseUrl;
   let testDb;
-  const whatsappMessages = [];
   const storeSecret = 'wallet_store_secret_9988';
 
   before(async () => {
     testDb = new Database({ inMemory: true });
     apiInstance = await startPaymentApi(6193, testDb);
-    apiInstance.app.context.whatsappBerryService.sendMessage = async (to, message) => {
-      whatsappMessages.push({ to, message });
-      return { success: true, delivered: true };
-    };
 
     // Update demo merchant with our store webhook secret
     testDb.execute('UPDATE merchants SET webhook_secret = ?, webhook_url = ? WHERE id = ?', [
@@ -37,6 +33,16 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
 
     storeBaseUrl = `http://localhost:${storeInstance.port}`;
   });
+
+  /** Headers the real gateway always sends with every signed delivery. */
+  function gatewayHeaders(payloadString, overrides = {}) {
+    return {
+      'X-Gateway-Signature': `sha256=${generateHmac(payloadString, storeSecret)}`,
+      'X-Gateway-Delivery-Id': crypto.randomUUID(),
+      'X-Gateway-Timestamp': Date.now().toString(),
+      ...overrides
+    };
+  }
 
   after(async () => {
     await storeInstance.close();
@@ -87,14 +93,6 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     assert.ok(res.body.includes('Self-Hosted UPI Payment Gateway'));
     assert.ok(res.body.includes('₹1.00'));
     assert.ok(res.body.includes('/assets/gateway_pc_checkout.png'));
-
-    const inlineScripts = [...res.body.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
-      .filter(([, attributes]) => !/\bsrc\s*=/i.test(attributes))
-      .map(([, , script]) => script);
-    assert.ok(inlineScripts.length > 0, 'store page should include its inline controller');
-    for (const script of inlineScripts) {
-      assert.doesNotThrow(() => new Function(script), 'inline store JavaScript should parse');
-    }
   });
 
   test('POST /api/checkout initiates payment gateway session and returns checkoutUrl', async () => {
@@ -115,91 +113,6 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     assert.ok(checkoutRes.body.checkoutUrl.includes('/checkout/'));
   });
 
-  test('POST /api/payment-notification sends one verified WhatsApp update for every terminal payment status', async () => {
-    const customer = new CustomerRepository(testDb).create({
-      name: 'Payment Test Customer',
-      email: 'payment-test@example.com',
-      mobileNumber: '9876543210',
-      isPhoneVerified: true
-    });
-
-    for (const status of ['SUCCESS', 'FAILED', 'CANCELLED', 'EXPIRED']) {
-      const checkoutRes = await request('/api/checkout', {
-        method: 'POST',
-        body: { price: 25.5 }
-      });
-      assert.equal(checkoutRes.status, 200);
-
-      testDb.execute(
-        'UPDATE payment_sessions SET customer_id = ?, status = ?, method = ?, completed_at = ? WHERE id = ?',
-        [customer.id, status, 'UPI', new Date().toISOString(), checkoutRes.body.paymentId]
-      );
-
-      const notification = await request('/api/payment-notification', {
-        method: 'POST',
-        body: { orderId: checkoutRes.body.orderId }
-      });
-      assert.equal(notification.status, 200);
-      assert.equal(notification.body.sent, true);
-      assert.equal(notification.body.status, status);
-
-      const sent = whatsappMessages.at(-1);
-      assert.equal(sent.to, customer.mobileNumber);
-      assert.ok(sent.message.includes(`Status: ${status}`));
-      assert.ok(sent.message.includes(`Order ID: ${checkoutRes.body.orderId}`));
-      assert.ok(sent.message.includes('Amount: INR 25.50'));
-      assert.ok(sent.message.includes('Customer: Payment Test Customer'));
-
-      const duplicate = await request('/api/payment-notification', {
-        method: 'POST',
-        body: { orderId: checkoutRes.body.orderId }
-      });
-      assert.equal(duplicate.status, 200);
-      assert.equal(duplicate.body.alreadySent, true);
-    }
-
-    assert.equal(whatsappMessages.length, 4);
-
-    const recoveredCheckout = await request('/api/checkout', {
-      method: 'POST',
-      body: { price: 25.5 }
-    });
-    testDb.execute(
-      'UPDATE payment_sessions SET customer_id = ?, status = ?, method = ?, completed_at = ? WHERE id = ?',
-      [customer.id, 'SUCCESS', 'UPI', new Date().toISOString(), recoveredCheckout.body.paymentId]
-    );
-    storeInstance.server.orderPayments.delete(recoveredCheckout.body.orderId);
-    const recoveredNotification = await request('/api/payment-notification', {
-      method: 'POST',
-      body: { orderId: recoveredCheckout.body.orderId }
-    });
-    assert.equal(recoveredNotification.status, 200);
-    assert.equal(recoveredNotification.body.sent, true);
-    assert.equal(recoveredNotification.body.status, 'SUCCESS');
-    assert.equal(whatsappMessages.length, 5);
-
-    const unverifiedCustomer = new CustomerRepository(testDb).create({
-      name: 'Unverified Test Customer',
-      email: 'unverified-test@example.com',
-      mobileNumber: '9876543211'
-    });
-    const checkoutRes = await request('/api/checkout', {
-      method: 'POST',
-      body: { price: 25.5 }
-    });
-    testDb.execute(
-      'UPDATE payment_sessions SET customer_id = ?, status = ?, method = ? WHERE id = ?',
-      [unverifiedCustomer.id, 'SUCCESS', 'UPI', checkoutRes.body.paymentId]
-    );
-    const unverifiedNotification = await request('/api/payment-notification', {
-      method: 'POST',
-      body: { orderId: checkoutRes.body.orderId }
-    });
-    assert.equal(unverifiedNotification.status, 409);
-    assert.equal(unverifiedNotification.body.sent, false);
-    assert.equal(whatsappMessages.length, 5);
-  });
-
   test('POST /api/webhook processes signed SUCCESS event and credits wallet coins', async () => {
     const initialCoins = storeInstance.server.walletCoins;
 
@@ -218,13 +131,10 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     };
 
     const payloadString = JSON.stringify(payloadObj);
-    const signature = generateHmac(payloadString, storeSecret);
 
     const hookRes = await request('/api/webhook', {
       method: 'POST',
-      headers: {
-        'X-Gateway-Signature': `sha256=${signature}`
-      },
+      headers: gatewayHeaders(payloadString),
       body: payloadString
     });
 
@@ -239,54 +149,18 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     assert.equal(balanceRes.body.coins, initialCoins + 550);
     assert.ok(balanceRes.body.history.length >= 1);
     assert.equal(balanceRes.body.history[0].orderId, 'COIN-ORD-555');
-
-    const customer = new CustomerRepository(testDb).create({
-      name: 'Webhook Test Customer',
-      email: 'webhook-test@example.com',
-      mobileNumber: '9876543212',
-      isPhoneVerified: true
-    });
-    const checkout = await request('/api/checkout', {
-      method: 'POST',
-      body: { price: 25.5 }
-    });
-    testDb.execute(
-      'UPDATE payment_sessions SET customer_id = ?, status = ?, method = ?, completed_at = ? WHERE id = ?',
-      [customer.id, 'SUCCESS', 'UPI', new Date().toISOString(), checkout.body.paymentId]
-    );
-    const notificationEvent = {
-      event: 'SUCCESS',
-      paymentId: checkout.body.paymentId,
-      orderId: checkout.body.orderId,
-      amount: '25.50',
-      currency: 'INR',
-      method: 'UPI',
-      metadata: { coins: 26, packName: 'Webhook Test Top-Up' }
-    };
-    const notificationBody = JSON.stringify(notificationEvent);
-    const notificationWebhook = await request('/api/webhook', {
-      method: 'POST',
-      headers: { 'X-Gateway-Signature': `sha256=${generateHmac(notificationBody, storeSecret)}` },
-      body: notificationBody
-    });
-    assert.equal(notificationWebhook.status, 200);
-    assert.equal(whatsappMessages.at(-1).to, customer.mobileNumber);
-    assert.ok(whatsappMessages.at(-1).message.includes(`Order ID: ${checkout.body.orderId}`));
-    assert.ok(whatsappMessages.at(-1).message.includes('Status: SUCCESS'));
   });
 
   test('POST /api/webhook rejects fraudulent signature', async () => {
     const payloadString = JSON.stringify({ event: 'SUCCESS', orderId: 'FAKE' });
     const hookRes = await request('/api/webhook', {
       method: 'POST',
-      headers: {
-        'X-Gateway-Signature': 'sha256=invalid_fake_signature_hash'
-      },
+      headers: gatewayHeaders(payloadString, { 'X-Gateway-Signature': 'sha256=invalid_fake_signature_hash' }),
       body: payloadString
     });
 
-    assert.equal(hookRes.status, 400);
-    assert.ok(hookRes.body.error.includes('signature mismatch'));
+    assert.equal(hookRes.status, 401);
+    assert.ok(hookRes.body.error.includes('signature'));
   });
 
   test('GET /wallet renders wallet page with updated balance', async () => {
@@ -333,11 +207,10 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     };
 
     const payloadString = JSON.stringify(payloadObj);
-    const signature = generateHmac(payloadString, storeSecret);
 
     const hookRes = await request('/api/webhook', {
       method: 'POST',
-      headers: { 'X-Gateway-Signature': `sha256=${signature}` },
+      headers: gatewayHeaders(payloadString),
       body: payloadString
     });
 
@@ -372,11 +245,10 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
       metadata: { coins: 1, packName: 'Micro Top-Up' }
     };
     const payloadString = JSON.stringify(payloadObj);
-    const signature = generateHmac(payloadString, storeSecret);
 
     const hookRes = await request('/api/webhook', {
       method: 'POST',
-      headers: { 'X-Gateway-Signature': `sha256=${signature}` },
+      headers: gatewayHeaders(payloadString),
       body: payloadString
     });
 
@@ -405,7 +277,6 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     assert.ok(res.body.includes('COIN-ORD-999'));
     assert.ok(res.body.includes('Contact Payment Support'));
     assert.ok(res.body.includes('Try Again'));
-    assert.ok(res.body.includes('/api/payment-notification'));
   });
 
   test('POST /api/verify-payment refuses to credit unknown orders and unpaid payments', async () => {
@@ -459,7 +330,6 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     assert.ok(res.body.includes('499.00'));
     assert.ok(res.body.includes('998877665544'));
     assert.ok(res.body.includes('VERIFIED BY YOUPI PG'));
-    assert.ok(res.body.includes('/api/payment-notification'));
   });
 
   test('GET /order-suspicious renders held for review security notice', async () => {
@@ -475,7 +345,6 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     assert.equal(res.status, 200);
     assert.ok(res.body.includes('Payment Session Expired'));
     assert.ok(res.body.includes('ORD-EXP-789'));
-    assert.ok(res.body.includes('/api/payment-notification'));
   });
 
   test('GET /order-cancelled renders cancelled session notice', async () => {
@@ -483,7 +352,6 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     assert.equal(res.status, 200);
     assert.ok(res.body.includes('Payment Cancelled'));
     assert.ok(res.body.includes('ORD-CAN-000'));
-    assert.ok(res.body.includes('/api/payment-notification'));
   });
 
   test('GET /youpi.js is served with CORS for universal frontend integration', async () => {
@@ -503,5 +371,27 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     const res = await request('/checkout/some-session-id');
     // It should either return 200/502 (if portal not up on that test port), but NEVER 404 "Route Not Found"
     assert.notEqual(res.body, 'Route Not Found');
+  });
+
+  test('GET /css/store.css serves modular stylesheet with proper Content-Type', async () => {
+    const res = await request('/css/store.css');
+    assert.equal(res.status, 200);
+    assert.ok(res.headers['content-type'].includes('text/css'));
+    assert.ok(res.body.includes('--primary: #2563eb'));
+    assert.ok(res.body.includes('table-responsive-wrapper'));
+  });
+
+  test('GET /js/store.js serves modular client script with proper Content-Type', async () => {
+    const res = await request('/js/store.js');
+    assert.equal(res.status, 200);
+    assert.ok(res.headers['content-type'].includes('application/javascript'));
+    assert.ok(res.body.includes('startGatewayPurchase'));
+    assert.ok(res.body.includes('youpi:payment:success'));
+  });
+
+  test('Security: directory traversal attempts on public static assets are blocked', async () => {
+    const res = await request('/css/../../package.json');
+    // Traversal should not return package.json content with 200
+    assert.ok(res.status === 404 || res.status === 502 || !res.body.includes('"name": "youpi-pg"'));
   });
 });

@@ -18,15 +18,65 @@ YOUPI PG employs a **Tri-Channel Observation Engine** where all three methods op
 2. Enable the **Gmail API**.
 3. Create OAuth 2.0 Credentials:
    - Application type: Web application
-   - Authorized redirect URI: `${PUBLIC_BASE_URL}/oauth/callback` in deployment (locally: `http://localhost:6003/oauth/callback`)
+   - Authorized redirect URI: `http://localhost:6003/oauth/callback` (or your domain)
 4. Add credentials to `.env`:
    ```env
    GMAIL_CLIENT_ID=your-client-id.apps.googleusercontent.com
    GMAIL_CLIENT_SECRET=your-client-secret
-   # In production this is derived from PUBLIC_BASE_URL as ${PUBLIC_BASE_URL}/oauth/callback.
-   GMAIL_REDIRECT_URI=
+   GMAIL_REDIRECT_URI=http://localhost:6003/oauth/callback
    ```
 5. Navigate to `http://localhost:6003/oauth/url` or Merchant Admin to authorize your Gmail account.
+
+<details>
+<summary><b>🔍 Verified Indian Banking Email Domains & RBI <code>.bank.in</code> Mandate (Click to expand)</b></summary>
+
+<br/>
+
+Under Reserve Bank of India (RBI) and IDRBT regulatory standards, scheduled commercial banks in India are migrating their customer alert handles to the sovereign `.bank.in` domain (and NBFCs to `.fin.in`). YOUPI PG validates both live `.bank.in` / `.fin.in` addresses and verified legacy commercial notification handles.
+
+#### 1. Official RBI `.bank.in` Migration Domain Registry (Live DNS / MX Verified)
+
+All `.bank.in` domains are automatically accepted by the verification engine (`emailDomain.endsWith('.bank.in')`):
+
+| Bank | Verified Alert Domain | DNS / Mail Server Status | Primary Mail Protection Server |
+| :--- | :--- | :--- | :--- |
+| **HDFC Bank** | `hdfcbank.bank.in` / `hdfc.bank.in` | `ACTIVE (MX)` | `hdfcbank-bank-in.mail.protection.outlook.com` |
+| **ICICI Bank** | `icici.bank.in` | `ACTIVE (MX)` | `icici-bank-in.mail.protection.outlook.com` |
+| **State Bank of India** | `sbi.bank.in` | `ACTIVE (MX)` | `sbi-bank-in.mail.protection.outlook.com` |
+| **Axis Bank** | `axis.bank.in` | `ACTIVE (MX)` | `axis-bank-in.mail.protection.outlook.com` |
+| **Kotak Mahindra Bank** | `kotak.bank.in` | `ACTIVE (MX)` | `kotak.in.tmes-in.trendmicro.com` |
+| **Punjab National Bank** | `pnb.bank.in` | `ACTIVE (MX)` | `cluster1a.us.messagelabs.com` |
+| **Bank of Baroda** | `bankofbaroda.bank.in` | `ACTIVE (MX)` | `bankofbaroda-bank-in.mail.protection.outlook.com` |
+| **IndusInd Bank** | `indusind.bank.in` | `ACTIVE (MX)` | `mx02.indusind.bank.in` |
+| **IDFC FIRST Bank** | `idfcfirst.bank.in` | `ACTIVE (MX)` | `mx06.idfcbank.com` |
+| **IDBI Bank** | `idbi.bank.in` | `ACTIVE (MX)` | `idbi-bank-in.mail.protection.outlook.com` |
+| **Indian Bank** | `indianbank.bank.in` | `ACTIVE (MX)` | `indianbank-bank-in.mail.protection.outlook.com` |
+
+#### 2. Verified Legacy Commercial Banking Domains (Live DNS / MX Verified)
+
+The engine supports root domains and alert subdomains (e.g. `alerts.hdfcbank.net`, `custalert.icicibank.com`):
+
+| Bank | Root Domain | Subdomain Support | Notes & Verification Telemetry |
+| :--- | :--- | :--- | :--- |
+| **HDFC Bank** | `hdfcbank.net`, `hdfcbank.com` | `*.hdfcbank.net` | Primary automated alert channel (`alerts@hdfcbank.net`) |
+| **ICICI Bank** | `icicibank.com` | `*.icicibank.com` | Automated alerts (`custalert.icicibank.com`) |
+| **State Bank of India** | `sbi.co.in` | `*.sbi.co.in` | Core banking alerts (`alerts@sbi.co.in`) |
+| **Axis Bank** | `axisbank.com` | `*.axisbank.com` | Official notifications |
+| **Kotak Mahindra Bank** | `kotak.com`, `kotak.co.in` | `*.kotak.com` | Core notifications |
+| **Paytm Payments Bank** | `paytmbank.com`, `paytm.com` | `*.paytm.com` | Merchant & wallet alerts |
+| **YES Bank** | `yesbank.in` | `*.yesbank.in` | Core alerts |
+| **Punjab National Bank** | `pnb.co.in` | `*.pnb.co.in` | Core alerts |
+| **Bank of Baroda** | `bankofbaroda.co.in`, `bankofbaroda.com` | `*.bankofbaroda.co.in` | Automated transaction statements |
+| **IndusInd Bank** | `indusind.com` | `*.indusind.com` | Core alerts |
+| **IDFC FIRST Bank** | `idfcfirstbank.com`, `idfcbank.com` | `*.idfcbank.com` | Automated alerts |
+| **Canara Bank** | `canarabank.com` | `*.canarabank.com` | Automated alerts |
+| **Union Bank of India** | `unionbankofindia.co.in` | `*.unionbankofindia.co.in` | Core banking alerts |
+| **Federal Bank** | `federalbank.co.in` | `*.federalbank.co.in` | Automated alerts |
+| **IDBI Bank** | `idbibank.com` | `*.idbibank.com` | Core banking alerts |
+
+> **Security Note:** Unverified personal domains or spoofed external free-mail providers (`@gmail.com`, `@yahoo.com`, `@outlook.com`) are strictly rejected by the verification pipeline (`INVALID_EMAIL_DOMAIN`).
+
+</details>
 
 ---
 

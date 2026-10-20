@@ -3,10 +3,60 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { YoupiPaymentClient } from '@youpi/merchant-sdk';
-import { getAdminToken, getCoinStoreWebhookSecret } from '@youpi/common';
+import { getCoinStoreWebhookSecret } from '@youpi/common';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/** Security headers applied to every HTML response served by the store. */
+const BASE_SECURITY_HEADERS = Object.freeze({
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'SAMEORIGIN',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'; object-src 'none'"
+});
+
+/**
+ * Escapes a value for interpolation into HTML text or attribute context.
+ * Order ids, UTRs and failure reasons arrive from query parameters, so they must never be
+ * injected raw into the order-status templates.
+ */
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+/** Upper bound for an unauthenticated JSON request body. */
+const MAX_JSON_BODY_BYTES = 64 * 1024;
+/** Largest single top-up the demo store accepts. */
+const MAX_TOPUP_RUPEES = 100000;
+/** Accepted clock skew for an inbound webhook's X-Gateway-Timestamp. */
+const WEBHOOK_MAX_SKEW_MS = 5 * 60 * 1000;
+
+/** Keeps a client-supplied pack name printable and bounded before it is stored as metadata. */
+function sanitizePackName(value) {
+  const cleaned = String(value ?? '').replace(/[^\w .&()'-]/g, '').trim().slice(0, 60);
+  return cleaned || 'Gamer Pack';
+}
+
+/**
+ * Strips headers that would let a browser claim to be an internal renderer before the
+ * request is relayed to the payment core.
+ */
+function sanitizedForwardHeaders(req, targetHost) {
+  const headers = { ...req.headers, host: targetHost };
+  for (const name of Object.keys(headers)) {
+    const lower = name.toLowerCase();
+    if (lower === 'x-internal-render' || lower === 'x-internal-token') {
+      delete headers[name];
+    }
+  }
+  return headers;
+}
 
 // In production, reliably ensure environment variables from .env are loaded if not already provided
 if (!process.env.BASE_PAYMENT_API_URL && typeof process.loadEnvFile === 'function') {
@@ -32,9 +82,17 @@ export class CoinWalletStoreServer {
     this.merchantId = options.merchantId || '00000000-0000-0000-0000-000000000001';
     this.webhookSecret = options.webhookSecret || getCoinStoreWebhookSecret();
 
+    // Canonical public origin of this store. Post-payment return URLs are built from this
+    // value rather than from the request's Host / X-Forwarded-* headers, which are
+    // attacker-controllable and would otherwise allow redirecting paying customers elsewhere.
+    this.publicBaseUrl = (options.publicBaseUrl || process.env.COIN_STORE_PUBLIC_URL || `http://localhost:${process.env.STORE_PORT || 5000}`)
+      .replace(/\/+$/, '');
+
     // orderId -> gateway paymentId for orders this store created (used to verify payments server-side)
     this.orderPayments = new Map();
-    this.paymentNotifications = new Map();
+
+    // Recently processed X-Gateway-Delivery-Id values, used to reject replayed webhooks.
+    this.seenDeliveryIds = new Map();
 
     this.paymentClient = new YoupiPaymentClient({
       apiUrl: this.gatewayApiUrl,
@@ -66,90 +124,13 @@ export class CoinWalletStoreServer {
     });
   }
 
-  async notifyCustomerPaymentStatus(orderId) {
-    const inFlightOrSent = this.paymentNotifications.get(orderId);
-    if (inFlightOrSent) return { ...(await inFlightOrSent), alreadySent: true };
-
-    const paymentId = this.orderPayments.get(orderId);
-
-    const notification = (async () => {
-      const detailsUrl = paymentId
-        ? new URL(`/api/v1/payments/${encodeURIComponent(paymentId)}/cod`, this.gatewayApiUrl)
-        : new URL(`/api/v1/orders/${encodeURIComponent(orderId)}/cod?merchantId=${encodeURIComponent(this.merchantId)}`, this.gatewayApiUrl);
-      const detailsResponse = await fetch(detailsUrl);
-      if (!detailsResponse.ok) {
-        if (detailsResponse.status === 404) {
-          return { sent: false, statusCode: 404, error: 'Unknown order' };
-        }
-        throw new Error(`Unable to retrieve payment details (HTTP ${detailsResponse.status})`);
-      }
-
-      const payment = await detailsResponse.json();
-      if (payment.orderId !== orderId) {
-        return { sent: false, statusCode: 400, error: 'Payment order does not match' };
-      }
-
-      const terminalStatuses = new Set(['SUCCESS', 'FAILED', 'CANCELLED', 'EXPIRED']);
-      if (!terminalStatuses.has(payment.status)) {
-        return { sent: false, statusCode: 409, error: 'Payment has not reached a final status' };
-      }
-
-      const customer = payment.customer;
-      const phoneNumber = customer?.mobileNumber || customer?.phoneNumber;
-      if (!phoneNumber) {
-        return { sent: false, statusCode: 409, error: 'Customer WhatsApp number is unavailable' };
-      }
-      if (customer.isPhoneVerified !== true) {
-        return { sent: false, statusCode: 409, error: 'Customer WhatsApp number is not verified' };
-      }
-
-      const safeValue = (value) => String(value || 'N/A').replace(/[\r\n]+/g, ' ').slice(0, 200);
-      const timestamp = payment.placedAt
-        ? new Date(payment.placedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
-        : 'N/A';
-      const message = [
-        '*YOUPI PG payment update*',
-        '',
-        `Status: ${safeValue(payment.status)}`,
-        `Order ID: ${safeValue(payment.orderId)}`,
-        `Payment ID: ${safeValue(payment.paymentId || paymentId)}`,
-        `Amount: ${safeValue(payment.currency || 'INR')} ${safeValue(payment.amount)}`,
-        `Payment mode: ${safeValue(payment.method)}`,
-        `UTR / bank reference: ${safeValue(payment.utr)}`,
-        `Date/time: ${safeValue(timestamp)}`,
-        `Product: ${safeValue(payment.metadata?.packName)}`,
-        `Coins: ${safeValue(payment.metadata?.coins)}`,
-        `Reason: ${safeValue(payment.metadata?.cancelledReason || payment.metadata?.reason)}`,
-        `Customer: ${safeValue(customer.name || customer.fullName)}`,
-        `WhatsApp: ${safeValue(phoneNumber)}`,
-        `Email: ${safeValue(customer.email)}`
-      ].join('\n');
-
-      const sendResponse = await fetch(new URL('/api/v1/admin/whatsapp/test-message', this.gatewayApiUrl), {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${getAdminToken()}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ to: phoneNumber, message })
-      });
-      const sendResult = await sendResponse.json().catch(() => ({}));
-      if (!sendResponse.ok || sendResult.success !== true || sendResult.delivered !== true) {
-        throw new Error(sendResult.error || sendResult.message || `WhatsApp delivery failed (HTTP ${sendResponse.status})`);
-      }
-
-      return { sent: true, status: payment.status };
-    })();
-
-    this.paymentNotifications.set(orderId, notification);
-    try {
-      const result = await notification;
-      if (!result.sent) this.paymentNotifications.delete(orderId);
-      return result;
-    } catch (err) {
-      this.paymentNotifications.delete(orderId);
-      throw err;
+  /** Records a processed delivery id and prunes entries older than the accepted skew window. */
+  rememberDeliveryId(deliveryId) {
+    const now = Date.now();
+    for (const [id, seenAt] of this.seenDeliveryIds) {
+      if (now - seenAt > WEBHOOK_MAX_SKEW_MS * 2) this.seenDeliveryIds.delete(id);
     }
+    this.seenDeliveryIds.set(deliveryId, now);
   }
 
   createServer() {
@@ -168,19 +149,27 @@ export class CoinWalletStoreServer {
         return;
       }
 
-      // GET /assets/* (serve product screenshots and icons)
-      if (pathname.startsWith('/assets/') && (method === 'GET' || method === 'HEAD')) {
-        const assetName = path.basename(pathname);
-        const assetPath = path.join(__dirname, '../public/assets', assetName);
-        if (fs.existsSync(assetPath)) {
-          const ext = path.extname(assetName).toLowerCase();
-          const contentType = ext === '.png' ? 'image/png' : ext === '.svg' ? 'image/svg+xml' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'application/octet-stream';
+      // SERVE LOCAL PUBLIC ASSETS: /assets/*, /css/*, /js/*
+      if ((pathname.startsWith('/assets/') || pathname.startsWith('/css/') || pathname.startsWith('/js/')) && (method === 'GET' || method === 'HEAD')) {
+        const publicDir = path.resolve(__dirname, '../public');
+        const safeRelative = path.normalize(pathname.replace(/^\//, '')).replace(/^(\.\.(\/|\\|$))+/, '');
+        const targetPath = path.join(publicDir, safeRelative);
+        const rel = path.relative(publicDir, targetPath);
+
+        if (!rel.startsWith('..') && !path.isAbsolute(rel) && fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
+          const ext = path.extname(targetPath).toLowerCase();
+          const contentType = ext === '.css' ? 'text/css; charset=utf-8'
+            : ext === '.js' ? 'application/javascript; charset=utf-8'
+            : ext === '.png' ? 'image/png'
+            : ext === '.svg' ? 'image/svg+xml'
+            : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
+            : 'application/octet-stream';
           res.writeHead(200, {
             'Content-Type': contentType,
-            'Cache-Control': 'public, max-age=86400'
+            'Cache-Control': ext === '.css' || ext === '.js' ? 'no-cache' : 'public, max-age=86400'
           });
           if (method === 'HEAD') { res.end(); return; }
-          const stream = fs.createReadStream(assetPath);
+          const stream = fs.createReadStream(targetPath);
           stream.pipe(res);
           return;
         }
@@ -220,8 +209,8 @@ export class CoinWalletStoreServer {
         }
       }
 
-      // REVERSE PROXY: /checkout/* and /icons/* -> Checkout Portal (Port 7000)
-      if (pathname.startsWith('/checkout') || pathname.startsWith('/icons/')) {
+      // REVERSE PROXY: /checkout/*, /icons/*, /css/*, and /js/* -> Checkout Portal (Port 7000)
+      if (pathname.startsWith('/checkout') || pathname.startsWith('/icons/') || pathname.startsWith('/css/') || pathname.startsWith('/js/')) {
         const portalPort = Number(process.env.CHECKOUT_PORT || 7000);
         const proxyReq = http.request({
           hostname: '127.0.0.1',
@@ -229,8 +218,7 @@ export class CoinWalletStoreServer {
           path: req.url,
           method: req.method,
           headers: {
-            ...req.headers,
-            host: `localhost:${portalPort}`,
+            ...sanitizedForwardHeaders(req, `localhost:${portalPort}`),
             'x-forwarded-host': req.headers.host || '',
             'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'http'
           }
@@ -260,8 +248,7 @@ export class CoinWalletStoreServer {
             path: req.url,
             method: req.method,
             headers: {
-              ...req.headers,
-              host: `${parsedGateway.hostname}:${parsedGateway.port}`,
+              ...sanitizedForwardHeaders(req, `${parsedGateway.hostname}:${parsedGateway.port}`),
               'x-forwarded-host': req.headers.host || '',
               'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'http'
             }
@@ -293,7 +280,8 @@ export class CoinWalletStoreServer {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
           'Pragma': 'no-cache',
-          'Expires': '0'
+          'Expires': '0',
+          ...BASE_SECURITY_HEADERS
         });
         if (method === 'HEAD') { res.end(); return; }
         res.end(this.storeHtml);
@@ -307,7 +295,8 @@ export class CoinWalletStoreServer {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
           'Pragma': 'no-cache',
-          'Expires': '0'
+          'Expires': '0',
+          ...BASE_SECURITY_HEADERS
         });
         if (method === 'HEAD') { res.end(); return; }
         res.end(this.walletHtml);
@@ -324,15 +313,16 @@ export class CoinWalletStoreServer {
         const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 
         let rendered = this.orderSuccessHtml
-          .replaceAll('{{ORDER_ID}}', orderId)
-          .replaceAll('{{AMOUNT}}', amount)
-          .replaceAll('{{UTR}}', utr)
-          .replaceAll('{{MODE}}', mode)
-          .replaceAll('{{TIMESTAMP}}', timestamp);
+          .replaceAll('{{ORDER_ID}}', escapeHtml(orderId))
+          .replaceAll('{{AMOUNT}}', escapeHtml(amount))
+          .replaceAll('{{UTR}}', escapeHtml(utr))
+          .replaceAll('{{MODE}}', escapeHtml(mode))
+          .replaceAll('{{TIMESTAMP}}', escapeHtml(timestamp));
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          ...BASE_SECURITY_HEADERS
         });
         if (method === 'HEAD') { res.end(); return; }
         res.end(rendered);
@@ -345,13 +335,14 @@ export class CoinWalletStoreServer {
         const orderId = url.searchParams.get('order_id') || url.searchParams.get('orderId') || 'ORDER-DEMO';
         const reason = url.searchParams.get('reason') || 'Transaction verification timed out or declined.';
         let rendered = this.orderFailedHtml
-          .replaceAll('{{ORDER_ID}}', orderId)
-          .replaceAll('ORDER-#', orderId)
-          .replaceAll('{{REASON}}', reason);
+          .replaceAll('{{ORDER_ID}}', escapeHtml(orderId))
+          .replaceAll('ORDER-#', escapeHtml(orderId))
+          .replaceAll('{{REASON}}', escapeHtml(reason));
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          ...BASE_SECURITY_HEADERS
         });
         if (method === 'HEAD') { res.end(); return; }
         res.end(rendered);
@@ -362,11 +353,12 @@ export class CoinWalletStoreServer {
       if ((pathname === '/order-suspicious' || pathname === '/suspicious') && (method === 'GET' || method === 'HEAD')) {
         try { this.orderSuspiciousHtml = fs.readFileSync(path.join(__dirname, 'order-suspicious.html'), 'utf8'); } catch {}
         const orderId = url.searchParams.get('order_id') || url.searchParams.get('orderId') || 'ORDER-DEMO';
-        let rendered = this.orderSuspiciousHtml.replaceAll('{{ORDER_ID}}', orderId);
+        let rendered = this.orderSuspiciousHtml.replaceAll('{{ORDER_ID}}', escapeHtml(orderId));
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          ...BASE_SECURITY_HEADERS
         });
         if (method === 'HEAD') { res.end(); return; }
         res.end(rendered);
@@ -377,11 +369,12 @@ export class CoinWalletStoreServer {
       if ((pathname === '/order-expired' || pathname === '/expired') && (method === 'GET' || method === 'HEAD')) {
         try { this.orderExpiredHtml = fs.readFileSync(path.join(__dirname, 'order-expired.html'), 'utf8'); } catch {}
         const orderId = url.searchParams.get('order_id') || url.searchParams.get('orderId') || 'ORDER-DEMO';
-        let rendered = this.orderExpiredHtml.replaceAll('{{ORDER_ID}}', orderId);
+        let rendered = this.orderExpiredHtml.replaceAll('{{ORDER_ID}}', escapeHtml(orderId));
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          ...BASE_SECURITY_HEADERS
         });
         if (method === 'HEAD') { res.end(); return; }
         res.end(rendered);
@@ -392,11 +385,12 @@ export class CoinWalletStoreServer {
       if ((pathname === '/order-cancelled' || pathname === '/cancelled') && (method === 'GET' || method === 'HEAD')) {
         try { this.orderCancelledHtml = fs.readFileSync(path.join(__dirname, 'order-cancelled.html'), 'utf8'); } catch {}
         const orderId = url.searchParams.get('order_id') || url.searchParams.get('orderId') || 'ORDER-DEMO';
-        let rendered = this.orderCancelledHtml.replaceAll('{{ORDER_ID}}', orderId);
+        let rendered = this.orderCancelledHtml.replaceAll('{{ORDER_ID}}', escapeHtml(orderId));
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          ...BASE_SECURITY_HEADERS
         });
         if (method === 'HEAD') { res.end(); return; }
         res.end(rendered);
@@ -416,58 +410,45 @@ export class CoinWalletStoreServer {
         return;
       }
 
-      // POST /api/payment-notification (terminal status page requests a server-verified WhatsApp update)
-      if (pathname === '/api/payment-notification' && method === 'POST') {
-        let body = '';
-        req.on('data', chunk => { body += chunk; });
-        req.on('end', async () => {
-          let orderId;
-          try {
-            orderId = JSON.parse(body || '{}').orderId;
-          } catch {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Invalid JSON request body' }));
-            return;
-          }
-
-          if (typeof orderId !== 'string' || !orderId.trim()) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'orderId is required' }));
-            return;
-          }
-
-          try {
-            const result = await this.notifyCustomerPaymentStatus(orderId.trim());
-            res.writeHead(result.sent ? 200 : result.statusCode, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(result));
-          } catch (err) {
-            console.error(`[Coin Wallet Store] WhatsApp payment notification failed for order ${orderId}: ${err.message}`);
-            res.writeHead(502, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ sent: false, error: 'Unable to send WhatsApp payment notification' }));
-          }
-        });
-        return;
-      }
-
       // POST /api/checkout (Customer clicks purchase pack)
       if (pathname === '/api/checkout' && method === 'POST') {
         let body = '';
-        req.on('data', chunk => { body += chunk; });
+        let bodyTooLarge = false;
+        req.on('data', chunk => {
+          if (bodyTooLarge) return;
+          body += chunk;
+          if (body.length > MAX_JSON_BODY_BYTES) { bodyTooLarge = true; body = ''; }
+        });
         req.on('end', async () => {
+          if (bodyTooLarge) {
+            res.writeHead(413, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Request body too large' }));
+            return;
+          }
           try {
             const data = JSON.parse(body || '{}');
             const rawVal = data.price !== undefined ? data.price : (data.amount !== undefined ? data.amount : 1.00);
             const price = Number(rawVal);
-            if (isNaN(price) || price < 1) {
+            if (!Number.isFinite(price) || price < 1 || price > MAX_TOPUP_RUPEES) {
               res.writeHead(400, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ error: 'Minimum top-up amount is ₹1.00' }));
+              res.end(JSON.stringify({
+                error: price > MAX_TOPUP_RUPEES
+                  ? `Maximum top-up amount is ₹${MAX_TOPUP_RUPEES}.00`
+                  : 'Minimum top-up amount is ₹1.00'
+              }));
               return;
             }
             const orderId = `COIN-ORD-${Date.now()}`;
             const amountStr = price.toFixed(2);
-            const proto = req.headers['x-forwarded-proto'] || (req.headers.host?.includes('example.com') ? 'https' : 'http');
-            const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:5000';
-            const returnUrl = `${proto}://${host}/wallet?orderId=${orderId}`;
+
+            // The post-payment return target must be derived from the store's own configured
+            // base URL. Building it from Host / X-Forwarded-* lets an attacker choose where a
+            // paying customer is redirected (phishing after a real payment).
+            const returnUrl = `${this.publicBaseUrl}/wallet?orderId=${encodeURIComponent(orderId)}`;
+
+            // Coin quantity is derived server-side from the amount paid. A client-supplied
+            // `coins` value would let a buyer pay ₹1 and be credited an arbitrary balance.
+            const coins = Math.round(price);
 
             // Call YOUPI Payment Gateway via SDK
             const payment = await this.paymentClient.createPayment({
@@ -476,8 +457,8 @@ export class CoinWalletStoreServer {
               currency: 'INR',
               returnUrl,
               metadata: {
-                coins: data.coins || Math.round(price),
-                packName: data.packName || data.productName || 'Gamer Pack'
+                coins,
+                packName: sanitizePackName(data.packName || data.productName)
               }
             });
 
@@ -485,8 +466,8 @@ export class CoinWalletStoreServer {
 
             // Normalize checkoutUrl for localhost development / testing to prevent tunnel offline issues
             let resolvedCheckoutUrl = payment.checkoutUrl;
-            if (host.includes('localhost') || host.includes('127.0.0.1')) {
-              resolvedCheckoutUrl = `${proto}://${host}/checkout/${payment.paymentId}`;
+            if (this.publicBaseUrl.includes('localhost') || this.publicBaseUrl.includes('127.0.0.1')) {
+              resolvedCheckoutUrl = `${this.publicBaseUrl}/checkout/${payment.paymentId}`;
             }
 
             res.writeHead(200, {
@@ -500,7 +481,7 @@ export class CoinWalletStoreServer {
             }));
           } catch (err) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: err.message }));
+            res.end(JSON.stringify({ error: 'Unable to create payment' }));
           }
         });
         return;
@@ -509,8 +490,18 @@ export class CoinWalletStoreServer {
       // POST /api/verify-payment (Instant confirmation & credit from popup drawer handler)
       if (pathname === '/api/verify-payment' && method === 'POST') {
         let body = '';
-        req.on('data', chunk => { body += chunk; });
+        let bodyTooLarge = false;
+        req.on('data', chunk => {
+          if (bodyTooLarge) return;
+          body += chunk;
+          if (body.length > MAX_JSON_BODY_BYTES) { bodyTooLarge = true; body = ''; }
+        });
         req.on('end', async () => {
+          if (bodyTooLarge) {
+            res.writeHead(413, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Request body too large' }));
+            return;
+          }
           try {
             const data = JSON.parse(body || '{}');
             const { orderId: clientOrderId } = data;
@@ -552,8 +543,13 @@ export class CoinWalletStoreServer {
               return;
             }
 
-            const creditedCoins = Number(session.metadata?.coins) || 100;
-            const finalPackName = session.metadata?.packName || 'Coin Pack';
+            // Clamp the credited amount: metadata is written by this server, but a session created
+            // out-of-band could carry an arbitrary coin count.
+            const requestedCoins = Number(session.metadata?.coins);
+            const creditedCoins = (Number.isFinite(requestedCoins) && requestedCoins > 0)
+              ? Math.min(Math.round(requestedCoins), MAX_TOPUP_RUPEES)
+              : 100;
+            const finalPackName = sanitizePackName(session.metadata?.packName || 'Coin Pack');
 
             this.creditCoins(orderId, creditedCoins, finalPackName);
             console.log(`[Coin Wallet Store] Verified & credited ${creditedCoins} coins for Order ${orderId}. New balance: ${this.walletCoins}`);
@@ -579,36 +575,54 @@ export class CoinWalletStoreServer {
       // POST /api/webhook or /webhook (Signed webhook listener from YOUPI PG)
       if ((pathname === '/api/webhook' || pathname === '/webhook') && method === 'POST') {
         let rawBody = '';
-        req.on('data', chunk => { rawBody += chunk; });
-        req.on('end', async () => {
+        let bodyTooLarge = false;
+        req.on('data', chunk => {
+          if (bodyTooLarge) return;
+          rawBody += chunk;
+          if (rawBody.length > MAX_JSON_BODY_BYTES) { bodyTooLarge = true; rawBody = ''; }
+        });
+        req.on('end', () => {
+          if (bodyTooLarge) {
+            res.writeHead(413, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Payload too large' }));
+            return;
+          }
           const signature = req.headers['x-gateway-signature'];
+          const deliveryId = req.headers['x-gateway-delivery-id'] || '';
+          const timestamp = req.headers['x-gateway-timestamp'] || '';
+
+          // Reject a replayed delivery. Without this, one captured request can be resent
+          // indefinitely and re-credited after the in-memory dedupe is lost on restart.
+          const ts = Number(timestamp);
+          if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > WEBHOOK_MAX_SKEW_MS) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Webhook timestamp missing or outside the accepted window.' }));
+            return;
+          }
+          if (deliveryId && this.seenDeliveryIds.has(deliveryId)) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ received: true, duplicate: true }));
+            return;
+          }
 
           try {
-            // Verify HMAC-SHA256 signature using merchant SDK
+            // Signature is verified over the RAW body, before any JSON parsing.
             const event = this.paymentClient.verifyWebhook(rawBody, signature);
-            const eventStatus = event.event || event.status;
-            const orderId = event.orderId || event.data?.orderId;
+            if (deliveryId) this.rememberDeliveryId(deliveryId);
 
             const paidMethod = event.method || event.data?.method;
             // COD / counter 'SUCCESS' means an order was placed, not that money arrived.
-            if (eventStatus === 'SUCCESS' && (!paidMethod || paidMethod === 'UPI')) {
+            if ((event.event === 'SUCCESS' || event.status === 'SUCCESS') && paidMethod === 'UPI') {
+              const orderId = event.orderId || event.data?.orderId;
               const alreadyCredited = this.transactionHistory.some(t => t.orderId === orderId);
               if (!alreadyCredited) {
-                const coinsToAdd = Number(event.metadata?.coins || event.data?.metadata?.coins) || 100;
-                const packName = event.metadata?.packName || event.data?.metadata?.packName || 'Coin Pack';
+                const requested = Number(event.metadata?.coins || event.data?.metadata?.coins);
+                const coinsToAdd = (Number.isFinite(requested) && requested > 0)
+                  ? Math.min(Math.round(requested), MAX_TOPUP_RUPEES)
+                  : 100;
+                const packName = sanitizePackName(event.metadata?.packName || event.data?.metadata?.packName);
                 this.creditCoins(orderId, coinsToAdd, packName);
                 console.log(`[Coin Wallet Store] Webhook received! Credited ${coinsToAdd} coins for Order ${orderId}. New balance: ${this.walletCoins}`);
-              }
-            }
-
-            if (orderId && ['SUCCESS', 'FAILED', 'CANCELLED', 'EXPIRED'].includes(eventStatus)) {
-              try {
-                const notification = await this.notifyCustomerPaymentStatus(orderId);
-                if (!notification.sent && !notification.alreadySent) {
-                  console.warn(`[Coin Wallet Store] WhatsApp notification skipped for order ${orderId}: ${notification.error}`);
-                }
-              } catch (err) {
-                console.error(`[Coin Wallet Store] WhatsApp notification failed for order ${orderId}: ${err.message}`);
               }
             }
 
@@ -616,8 +630,8 @@ export class CoinWalletStoreServer {
             res.end(JSON.stringify({ received: true, credited: true }));
           } catch (err) {
             console.error('[Coin Wallet Store] Webhook verification failed:', err.message);
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: err.message }));
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid webhook signature' }));
           }
         });
         return;

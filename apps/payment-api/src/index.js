@@ -114,7 +114,20 @@ export function createPaymentApp(customDb = null, options = {}) {
 
   const server = new HttpServer();
   server.use(authGuard);
-  const checkoutBaseUrl = process.env.BASE_CHECKOUT_URL || 'http://localhost:7000';
+  let checkoutBaseUrl = process.env.BASE_CHECKOUT_URL || 'http://localhost:7000';
+  try {
+    const rootEnv = path.resolve(__dirname, '../../../.env');
+    if (fs.existsSync(rootEnv)) {
+      const raw = fs.readFileSync(rootEnv, 'utf8');
+      for (const line of raw.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('BASE_CHECKOUT_URL=')) {
+          const val = trimmed.split('=')[1]?.trim();
+          if (val) checkoutBaseUrl = val.replace(/^["']|["']$/g, '');
+        }
+      }
+    }
+  } catch {}
 
   // BULLETPROOF QUEUE PROMOTION HANDLER
   function handleSlotFreedAndPromote(receivingAccountId) {
@@ -419,7 +432,8 @@ export function createPaymentApp(customDb = null, options = {}) {
     defaultMerchant,
     checkoutBaseUrl,
     whatsappBerryService,
-    webhookEngine
+    webhookEngine,
+    otpCooldownMs: options.otpCooldownMs
   };
 
   registerPaymentRoutes(server, context);
@@ -455,7 +469,9 @@ export function startServer(port = null, customDb = null) {
   const app = createPaymentApp(customDb);
 
   return new Promise(resolve => {
-    const instance = app.rawServer.listen(finalPort, () => {
+    // Loopback by default; reach this service via the local Cloudflare Tunnel, not 0.0.0.0.
+    const bindHost = process.env.YOUPI_BIND_HOST || '127.0.0.1';
+    const instance = app.rawServer.listen(finalPort, bindHost, () => {
       console.log(`[Payment API] Server listening on port ${finalPort}`);
       resolve({
         app,

@@ -48,17 +48,6 @@ export class ProcessManager extends EventEmitter {
         pid: null
       },
       {
-        id: 'payment-help',
-        name: 'Payment Help Portal',
-        script: path.join(rootDir, 'apps/payment-help/src/index.js'),
-        port: Number(process.env.HELP_PORTAL_PORT || 3000),
-        healthPath: '/health',
-        child: null,
-        status: 'STOPPED',
-        startTime: null,
-        pid: null
-      },
-      {
         id: 'gmail-observer',
         name: 'Gmail Payment Observer',
         script: path.join(rootDir, 'apps/gmail-observer/src/index.js'),
@@ -161,12 +150,19 @@ export class ProcessManager extends EventEmitter {
         }
       } catch {}
     }
-    const hasEnvArg = process.execArgv.some(arg => arg.startsWith('--env-file'));
+    const supervisorOverrides = {};
+    if (process.env.NODE_ENV) supervisorOverrides.NODE_ENV = process.env.NODE_ENV;
+    if (process.env.YOUPI_MODE) supervisorOverrides.YOUPI_MODE = process.env.YOUPI_MODE;
+
+    // Re-apply the shared .env file as a child-process argument unless the caller already
+    // supplied one. Without this declaration the fork() below referenced an undefined
+    // variable and crashed every service start (ReferenceError: execArgv is not defined).
+    const hasEnvArg = process.execArgv.some(arg => String(arg).startsWith('--env-file'));
     const execArgv = (!hasEnvArg && fs.existsSync(envFile)) ? [`--env-file=${envFile}`] : [];
 
     const child = fork(svc.script, [], {
       execArgv: [...process.execArgv, ...execArgv],
-      env: { ...freshEnv, ...process.env, PORT: svc.port.toString() },
+      env: { ...freshEnv, ...process.env, ...supervisorOverrides, PORT: svc.port.toString() },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc']
     });
 

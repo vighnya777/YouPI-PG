@@ -1,5 +1,8 @@
 import crypto from 'node:crypto';
-import { hashPassword, verifyPassword, normalizeEmail, normalizeMobile, isValidEmail, isValidMobile, isValidPassword } from '@youpi/common';
+import { hashPassword, verifyPassword, normalizeEmail, normalizeMobile, isValidEmail, isValidMobile, isValidPassword, safeEqual, encryptAtRest, decryptAtRest } from '@youpi/common';
+
+/** Wrong guesses tolerated per issued OTP before the challenge is burned. */
+const OTP_MAX_ATTEMPTS = 5;
 
 export class CustomerRepository {
   /**
@@ -194,14 +197,15 @@ export class CustomerRepository {
     if (!normalized) return null;
     const now = new Date().toISOString();
     this.db.execute(
-      'UPDATE customers SET otp_code = ?, otp_expires_at = ?, updated_at = ? WHERE mobile_number = ?',
-      [otpCode, expiresAt, now, normalized]
+      'UPDATE customers SET otp_code = ?, otp_expires_at = ?, otp_attempts = 0, updated_at = ? WHERE mobile_number = ?',
+      [encryptAtRest(otpCode), expiresAt, now, normalized]
     );
     return this.findByMobile(normalized);
   }
 
   /**
    * Verifies WhatsApp OTP for customer login/signup.
+   * Enforces a bounded attempt count per challenge and compares the code in constant time.
    * Clears the OTP and marks phone as verified on success.
    * @param {string} mobileNumber
    * @param {string} otpCode
@@ -212,7 +216,21 @@ export class CustomerRepository {
     if (!normalized || !otpCode) return null;
     const customer = this.findByMobile(normalized);
     if (!customer) return null;
-    if (!customer.otpCode || customer.otpCode !== String(otpCode).trim()) {
+
+    // A 6-digit code has a 10^6 keyspace and a 5 minute lifetime, so without an attempt
+    // budget it is brute-forceable online. Fail closed once the budget is spent.
+    const attempts = Number(customer.otpAttempts || 0);
+    if (attempts >= OTP_MAX_ATTEMPTS) return null;
+
+    const submitted = String(otpCode).trim();
+    const storedOtp = decryptAtRest(customer.otpCode);
+    // `!==` short-circuits on the first differing character; use a constant-time compare.
+    const matches = storedOtp ? safeEqual(storedOtp, submitted) : false;
+    if (!storedOtp || !matches) {
+      this.db.execute(
+        'UPDATE customers SET otp_attempts = ?, updated_at = ? WHERE id = ?',
+        [attempts + 1, new Date().toISOString(), customer.id]
+      );
       return null;
     }
     if (customer.otpExpiresAt && new Date() > customer.otpExpiresAt) {
@@ -221,7 +239,7 @@ export class CustomerRepository {
 
     const now = new Date().toISOString();
     this.db.execute(
-      'UPDATE customers SET otp_code = NULL, otp_expires_at = NULL, is_phone_verified = 1, last_login_at = ?, updated_at = ? WHERE id = ?',
+      'UPDATE customers SET otp_code = NULL, otp_expires_at = NULL, otp_attempts = 0, is_phone_verified = 1, last_login_at = ?, updated_at = ? WHERE id = ?',
       [now, now, customer.id]
     );
     return this.findById(customer.id);
@@ -259,30 +277,40 @@ export class CustomerRepository {
    */
   banCustomer(id, reason = 'FRAUDULENT_PAYMENT_INJECTION', options = {}) {
     if (!id) return null;
-    const now = new Date().toISOString();
-    const lastDevice = options.lastDevice || options.deviceInfo || null;
-    this.db.execute(
-      "UPDATE customers SET status = 'BANNED', ban_reason = ?, banned_at = ?, last_device = COALESCE(?, last_device), updated_at = ? WHERE id = ?",
-      [reason, now, lastDevice, now, id]
-    );
-
-    // Immediately transition all existing non-terminal sessions for this customer to EXPIRED (Section 10, Test 18)
-    const activeSessions = this.db.query(
-      "SELECT id, receiving_account_id FROM payment_sessions WHERE customer_id = ? AND status IN ('INITIATED', 'QUEUED', 'ACTIVE', 'PROCESSING')",
-      [id]
-    );
-    if (activeSessions.length > 0) {
+    const releasedAccounts = [];
+    this.db.transaction(() => {
+      const now = new Date().toISOString();
+      const lastDevice = options.lastDevice || options.deviceInfo || null;
       this.db.execute(
-        "UPDATE payment_sessions SET status = 'EXPIRED', updated_at = ? WHERE customer_id = ? AND status IN ('INITIATED', 'QUEUED', 'ACTIVE', 'PROCESSING')",
-        [now, id]
+        "UPDATE customers SET status = 'BANNED', ban_reason = ?, banned_at = ?, last_device = COALESCE(?, last_device), updated_at = ? WHERE id = ?",
+        [reason, now, lastDevice, now, id]
       );
-      for (const s of activeSessions) {
-        if (s.receiving_account_id) {
-          this.db.execute(
-            "UPDATE payment_receiving_accounts SET is_slot_busy = 0, current_active_session_id = NULL WHERE id = ? AND current_active_session_id = ?",
-            [s.receiving_account_id, s.id]
-          );
+
+      // Immediately transition all existing non-terminal sessions for this customer to EXPIRED
+      const activeSessions = this.db.query(
+        "SELECT id, receiving_account_id FROM payment_sessions WHERE customer_id = ? AND status IN ('INITIATED', 'QUEUED', 'ACTIVE', 'PROCESSING')",
+        [id]
+      );
+      if (activeSessions.length > 0) {
+        this.db.execute(
+          "UPDATE payment_sessions SET status = 'EXPIRED', completed_at = ?, updated_at = ? WHERE customer_id = ? AND status IN ('INITIATED', 'QUEUED', 'ACTIVE', 'PROCESSING')",
+          [now, now, id]
+        );
+        for (const s of activeSessions) {
+          if (s.receiving_account_id) {
+            this.db.execute(
+              "UPDATE payment_receiving_accounts SET is_slot_busy = 0, current_active_session_id = NULL, updated_at = ? WHERE id = ? AND current_active_session_id = ?",
+              [now, s.receiving_account_id, s.id]
+            );
+            releasedAccounts.push(s.receiving_account_id);
+          }
         }
+      }
+    });
+
+    if (options.queueEngine && typeof options.queueEngine.promoteNext === 'function') {
+      for (const accountId of releasedAccounts) {
+        options.queueEngine.promoteNext(accountId);
       }
     }
 
@@ -591,8 +619,9 @@ export class CustomerRepository {
       mobileNumber: row.mobile_number,
       phoneNumber: row.mobile_number,
       passwordHash: row.password_hash,
-      otpCode: row.otp_code || null,
+      otpCode: decryptAtRest(row.otp_code),
       otpExpiresAt: row.otp_expires_at ? new Date(row.otp_expires_at) : null,
+      otpAttempts: Number(row.otp_attempts || 0),
       isPhoneVerified: Boolean(row.is_phone_verified),
       status: row.status,
       banReason: row.ban_reason || null,

@@ -38,8 +38,6 @@ android {
     }
 }
 
-// Java sources that have a Kotlin counterpart are excluded from javac
-// so the same class is not compiled twice.
 afterEvaluate {
     tasks.withType<JavaCompile>().configureEach {
         setSource(source.matching {
