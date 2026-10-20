@@ -44,6 +44,7 @@ public class PaymentNotificationListenerService extends NotificationListenerServ
         }
 
         String full = (title + " " + text).toLowerCase();
+        // Check if this looks like a credit / payment received notification
         if (!full.contains("received") && !full.contains("credited") && !full.contains("deposit") && !full.contains("paid you")) {
             return;
         }

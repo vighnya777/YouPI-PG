@@ -10,14 +10,6 @@ android {
     sourceSets {
         getByName("main") {
             java.srcDirs("src/main/java")
-            java.exclude(
-                "com/youpi/observer/ApiClient.java",
-                "com/youpi/observer/BootReceiver.java",
-                "com/youpi/observer/ForegroundService.java",
-                "com/youpi/observer/MainActivity.java",
-                "com/youpi/observer/PaymentNotificationListenerService.java",
-                "com/youpi/observer/SmsReceiver.java"
-            )
         }
     }
 
@@ -44,6 +36,21 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+// Java sources that have a Kotlin counterpart are excluded from javac
+// so the same class is not compiled twice.
+tasks.withType<JavaCompile>().configureEach {
+    setSource(source.matching {
+        exclude(
+            "**/com/youpi/observer/ApiClient.java",
+            "**/com/youpi/observer/BootReceiver.java",
+            "**/com/youpi/observer/ForegroundService.java",
+            "**/com/youpi/observer/MainActivity.java",
+            "**/com/youpi/observer/PaymentNotificationListenerService.java",
+            "**/com/youpi/observer/SmsReceiver.java"
+        )
+    })
 }
 
 dependencies {
