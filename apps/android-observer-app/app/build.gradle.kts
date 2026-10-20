@@ -7,6 +7,13 @@ android {
     namespace = "com.youpi.observer"
     compileSdk = 34
 
+    sourceSets {
+        getByName("main") {
+            java.srcDirs("src/main/java")
+            kotlin.setSrcDirs(emptyList<String>())
+        }
+    }
+
     defaultConfig {
         applicationId = "com.youpi.observer"
         minSdk = 26
@@ -30,22 +37,6 @@ android {
     }
 }
 
-afterEvaluate {
-    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-        setSource(source.matching {
-            exclude(
-                "**/ApiClient.kt",
-                "**/BootReceiver.kt",
-                "**/ForegroundService.kt",
-                "**/HeartbeatWorker.kt",
-                "**/MainActivity.kt",
-                "**/NotificationParser.kt",
-                "**/PaymentNotificationListenerService.kt",
-                "**/SmsReceiver.kt"
-            )
-        })
-    }
-}
 
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
