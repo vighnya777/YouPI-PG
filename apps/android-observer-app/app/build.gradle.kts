@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
@@ -10,7 +9,6 @@ android {
     sourceSets {
         getByName("main") {
             java.srcDirs("src/main/java")
-            kotlin.setSrcDirs(emptyList<String>())
         }
     }
 
@@ -28,15 +26,12 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
 }
-
 
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
