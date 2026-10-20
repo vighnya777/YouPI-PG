@@ -1,5 +1,18 @@
 package com.youpi.observer;
 
-// This Java source file is intentionally left empty.
-// The Kotlin implementation in the same package is the canonical class definition.
-// Keeping both Java and Kotlin duplicates would cause R8 to fail with duplicate class errors during release builds.
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.util.Log;
+
+public class BootReceiver extends BroadcastReceiver {
+    private static final String TAG = "YoupiBootReceiver";
+
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        if (intent != null && Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+            Log.i(TAG, "Device rebooted. Launching YouPI Foreground Service daemon...");
+            ForegroundService.start(context);
+        }
+    }
+}
