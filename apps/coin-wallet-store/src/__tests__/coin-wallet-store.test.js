@@ -87,6 +87,14 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     assert.ok(res.body.includes('Self-Hosted UPI Payment Gateway'));
     assert.ok(res.body.includes('₹1.00'));
     assert.ok(res.body.includes('/assets/gateway_pc_checkout.png'));
+    assert.match(res.body, /<meta name="viewport" content="width=device-width, initial-scale=1\.0"/);
+    assert.match(res.body, /<button type="button" class="gallery-main-viewport"/);
+    assert.equal((res.body.match(/class="thumb-card(?: active)?"/g) || []).length, 5);
+    assert.match(res.body, /class="amount-validation-message" role="status" aria-live="polite" hidden/);
+    assert.ok(res.body.indexOf('id="purchase"') < res.body.indexOf('id="gallery"'), 'mobile reading order should prioritize checkout before the gallery');
+    assert.ok(res.body.indexOf('id="gallery"') < res.body.indexOf('class="security-checklist-block"'), 'gallery should precede the security checklist');
+    assert.match(res.body, /\.details-column\s*\{\s*display:\s*contents;/);
+    assert.match(res.body, /\.buy-box-card\s*\{\s*order:\s*2;/);
 
     const inlineScripts = [...res.body.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
       .filter(([, attributes]) => !/\bsrc\s*=/i.test(attributes))

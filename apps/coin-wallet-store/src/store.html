@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>YOUPI Store · Enterprise Payment Gateway Suite</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -208,6 +208,8 @@
       box-shadow: var(--shadow-sm);
       position: sticky;
       top: 85px;
+      grid-column: 1;
+      grid-row: 1;
     }
     .gallery-main-viewport {
       width: 100%;
@@ -222,6 +224,15 @@
       justify-content: center;
       cursor: zoom-in;
       box-shadow: inset 0 2px 8px rgba(0,0,0,0.4);
+      color: inherit;
+      font: inherit;
+      text-align: center;
+      padding: 0;
+    }
+    .gallery-main-viewport:focus-visible,
+    .thumb-card:focus-visible {
+      outline: 3px solid var(--primary);
+      outline-offset: 3px;
     }
     .gallery-main-img {
       max-width: 100%;
@@ -320,6 +331,12 @@
       display: flex;
       flex-direction: column;
       gap: 1.25rem;
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .security-checklist-block {
+      grid-column: 2;
+      grid-row: 2;
     }
 
     .product-h1 {
@@ -494,6 +511,15 @@
       font-weight: 800;
       color: var(--text-heading);
       width: 100%;
+    }
+    .amount-validation-message {
+      color: var(--danger);
+      font-size: 0.8rem;
+      font-weight: 700;
+      margin: -0.85rem 0 1rem;
+    }
+    .amount-validation-message[hidden] {
+      display: none;
     }
 
     /* PRIMARY BUY BUTTON */
@@ -857,11 +883,47 @@
     /* RESPONSIVE BREAKPOINTS */
     @media (max-width: 1024px) {
       .pdp-grid {
-        grid-template-columns: 1fr;
-        gap: 2rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+      }
+      .details-column {
+        display: contents;
+      }
+      .product-header-block {
+        order: 1;
+      }
+      .buy-box-card {
+        order: 2;
+      }
+      .gallery-column {
+        order: 3;
+        position: static;
+        width: 100%;
+      }
+      .security-checklist-block {
+        order: 4;
       }
       .gallery-main-viewport {
-        height: 380px;
+        height: 320px;
+      }
+      .header-inner {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+        padding: 0.7rem 1rem;
+      }
+      header nav {
+        width: 100%;
+        min-width: 0;
+        flex-wrap: nowrap !important;
+        overflow-x: auto;
+        padding: 0.15rem 0 0.35rem;
+        scrollbar-width: thin;
+      }
+      header nav .btn-admin-link {
+        flex: 0 0 auto;
+        white-space: nowrap;
       }
     }
 
@@ -872,24 +934,56 @@
         gap: 0.35rem;
       }
       header {
-        padding: 0.75rem 1rem;
+        padding: 0;
       }
       .header-inner {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.75rem;
+        gap: 0.35rem;
+        padding: 0.55rem 0.75rem 0.35rem;
+      }
+      header nav {
+        gap: 0.45rem !important;
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        overflow: visible;
+        padding: 0;
+      }
+      header nav .btn-admin-link {
+        justify-content: center;
+        padding: 0.4rem 0.35rem;
+        font-size: 0.7rem;
       }
       .product-showcase-container {
-        padding: 1rem 0.75rem;
+        margin-top: 0.9rem;
+        padding: 0 0.75rem;
       }
       .gallery-main-viewport {
-        height: 260px;
+        height: 230px;
       }
       .product-h1 {
         font-size: 1.45rem;
       }
       .buy-box-card {
         padding: 1.25rem 1rem;
+      }
+      .pricing-header {
+        align-items: flex-start;
+        gap: 0.5rem;
+      }
+      .pricing-header > div > span {
+        font-size: 0.72rem !important;
+        letter-spacing: normal;
+      }
+      .price-badge-demo {
+        max-width: 125px;
+        text-align: center;
+        line-height: 1.3;
+      }
+      .btn-buy-primary {
+        padding: 0.9rem 0.65rem;
+        font-size: 0.95rem;
+      }
+      .gallery-column {
+        padding: 0.85rem;
       }
       .price-main {
         font-size: 1.85rem;
@@ -991,36 +1085,6 @@
   <main class="product-showcase-container">
     <div class="pdp-grid">
 
-      <!-- LEFT COLUMN: INTERACTIVE VISUAL GALLERY -->
-      <div class="gallery-column" id="gallery">
-        <div class="gallery-main-viewport" onclick="openLightbox()" title="Click to view full-resolution screenshot">
-          <img id="mainGalleryImg" class="gallery-main-img" src="/assets/gateway_pc_checkout.png?v=2" alt="YOUPI PG Desktop Checkout View" />
-          <div class="gallery-zoom-hint">
-            <span>🔍</span>
-            <span>Click to Enlarge</span>
-          </div>
-        </div>
-
-        <!-- 5 High-Res Gateway Screenshots Carousel -->
-        <div class="thumbnails-grid">
-          <div class="thumb-card active" onclick="switchGalleryPhoto(0, '/assets/gateway_pc_checkout.png?v=2', 'Desktop 2-Column Checkout', 'Authentic desktop 2-column checkout frame with real-time dynamic QR, clean card at counter, live order summary, and verified merchant branding.')">
-            <img src="/assets/gateway_pc_checkout.png?v=2" alt="PC Checkout" />
-          </div>
-          <div class="thumb-card" onclick="switchGalleryPhoto(1, '/assets/gateway_mobile_checkout.png?v=2', 'Mobile Instant Sheet &amp; UPI Intent', 'Native fluid mobile checkout bottom sheet with instant UPI app deep-linking (GPay, PhonePe, Paytm, CRED).')">
-            <img src="/assets/gateway_mobile_checkout.png?v=2" alt="Mobile Checkout" />
-          </div>
-          <div class="thumb-card" onclick="switchGalleryPhoto(2, '/assets/gateway_merchant_operations.png?v=2', 'Merchant Operations &amp; Live Slots Hub', 'Crisp bright white operations dashboard with real-time slot allocation, floating cashier till dock, and observers status.')">
-            <img src="/assets/gateway_merchant_operations.png?v=2" alt="Operations Hub" />
-          </div>
-          <div class="thumb-card" onclick="switchGalleryPhoto(3, '/assets/gateway_developer_dark_hub.png?v=2', 'Developer Hub (Real Dark Mode)', 'Authentic obsidian real dark mode with multi-service supervisor, live host ports, and aggregate streaming terminal.')">
-            <img src="/assets/gateway_developer_dark_hub.png?v=2" alt="Developer Hub" />
-          </div>
-          <div class="thumb-card" onclick="switchGalleryPhoto(4, '/assets/gateway_whitelabel_customizer.png?v=2', 'White-Label Customizer &amp; Mockup', 'Live smartphone reflection with instant brand logo, custom color palette, trust seals, and conversion banners.')">
-            <img src="/assets/gateway_whitelabel_customizer.png?v=2" alt="White-Label Customizer" />
-          </div>
-        </div>
-      </div>
-
       <!-- RIGHT COLUMN: PRODUCT BUY BOX FIRST (PRIORITIZED DEMO), THEN CONTENT BELOW IT -->
       <div class="details-column">
         <div class="product-header-block">
@@ -1061,9 +1125,11 @@
             <span class="custom-amount-label">Or Custom Amount:</span>
             <div class="custom-input-wrap">
               <span class="custom-currency-symbol">₹</span>
-              <input type="number" id="customAmountInput" class="custom-amount-input" value="1.00" min="1" step="any" oninput="handleCustomAmountInput(this.value)" />
+              <input type="number" id="customAmountInput" class="custom-amount-input" value="1.00" min="1" step="any" required aria-describedby="amountValidationMessage" oninput="handleCustomAmountInput(this.value)" />
             </div>
+
           </div>
+          <p id="amountValidationMessage" class="amount-validation-message" role="status" aria-live="polite" hidden>Enter a valid amount of ₹1.00 or more.</p>
 
           <!-- PRIMARY BUY BUTTON (Official One-Button Integration Target) -->
           <button type="button"
@@ -1102,47 +1168,51 @@
           </div>
         </div>
 
-        <!-- CONTENT BELOW THE DEMO: Security Features Checklist -->
-        <div class="security-checklist-block" style="background:#ffffff; border:1px solid var(--border); border-radius:var(--radius-lg); padding:1.25rem 1.5rem; box-shadow:var(--shadow-sm);">
-          <div style="font-size:0.8rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.75rem;">
-            Security &amp; Core Capabilities
-          </div>
-          <ul class="feature-checklist">
-            <li>
-              <span class="chk">✓</span>
-              <span><strong>0% Gateway Fees:</strong> Direct bank settlement with zero aggregator fees.</span>
-            </li>
-            <li>
-              <span class="chk">✓</span>
-              <span><strong>WhatsApp-Based OTP Auth:</strong> Verifies buyers with WhatsApp OTP before checkout.</span>
-            </li>
-            <li>
-              <span class="chk">✓</span>
-              <span><strong>SMS &amp; Email Parsing:</strong> Automatically parses incoming bank SMS and Gmail alerts to verify payments.</span>
-            </li>
-            <li>
-              <span class="chk">✓</span>
-              <span><strong>Browser Fingerprinting:</strong> Identifies buyer devices and flags high-risk or repeat offenders.</span>
-            </li>
-            <li>
-              <span class="chk">✓</span>
-              <span><strong>Bans Fraudulent Users Instantly:</strong> Automatically bans fraudulent and suspicious users immediately.</span>
-            </li>
-            <li>
-              <span class="chk">✓</span>
-              <span><strong>Strict Payment Verification Parameters:</strong> Strictly verifies payment amount, transaction UTR, and timestamp.</span>
-            </li>
-            <li>
-              <span class="chk">✓</span>
-              <span><strong>POS Cashier Counter Desk:</strong> Counter checkout for walk-in cash and card payments.</span>
-            </li>
-            <li>
-              <span class="chk">✓</span>
-              <span><strong>100% White-Label:</strong> Custom merchant domain, logo, and branding.</span>
-            </li>
-          </ul>
-        </div>
+      </div>
 
+      <!-- INTERACTIVE VISUAL GALLERY -->
+      <div class="gallery-column" id="gallery">
+        <button type="button" class="gallery-main-viewport" onclick="openLightbox()" aria-label="Enlarge Desktop 2-Column Checkout screenshot">
+          <img id="mainGalleryImg" class="gallery-main-img" src="/assets/gateway_pc_checkout.png?v=2" alt="Desktop 2-Column Checkout" fetchpriority="high" />
+          <div class="gallery-zoom-hint">
+            <span>🔍</span>
+            <span>Click to Enlarge</span>
+          </div>
+        </button>
+
+        <div class="thumbnails-grid">
+          <button type="button" class="thumb-card active" aria-label="Show Desktop 2-Column Checkout screenshot" aria-pressed="true" onclick="switchGalleryPhoto(0, '/assets/gateway_pc_checkout.png?v=2', 'Desktop 2-Column Checkout', 'Authentic desktop 2-column checkout frame with real-time dynamic QR, clean card at counter, live order summary, and verified merchant branding.')">
+            <img src="/assets/gateway_pc_checkout.png?v=2" alt="" loading="lazy" />
+          </button>
+          <button type="button" class="thumb-card" aria-label="Show Mobile Instant Sheet &amp; UPI Intent screenshot" aria-pressed="false" onclick="switchGalleryPhoto(1, '/assets/gateway_mobile_checkout.png?v=2', 'Mobile Instant Sheet &amp; UPI Intent', 'Native fluid mobile checkout bottom sheet with instant UPI app deep-linking (GPay, PhonePe, Paytm, CRED).')">
+            <img src="/assets/gateway_mobile_checkout.png?v=2" alt="" loading="lazy" />
+          </button>
+          <button type="button" class="thumb-card" aria-label="Show Merchant Operations &amp; Live Slots Hub screenshot" aria-pressed="false" onclick="switchGalleryPhoto(2, '/assets/gateway_merchant_operations.png?v=2', 'Merchant Operations &amp; Live Slots Hub', 'Crisp bright white operations dashboard with real-time slot allocation, floating cashier till dock, and observers status.')">
+            <img src="/assets/gateway_merchant_operations.png?v=2" alt="" loading="lazy" />
+          </button>
+          <button type="button" class="thumb-card" aria-label="Show Developer Hub (Real Dark Mode) screenshot" aria-pressed="false" onclick="switchGalleryPhoto(3, '/assets/gateway_developer_dark_hub.png?v=2', 'Developer Hub (Real Dark Mode)', 'Authentic obsidian real dark mode with multi-service supervisor, live host ports, and aggregate streaming terminal.')">
+            <img src="/assets/gateway_developer_dark_hub.png?v=2" alt="" loading="lazy" />
+          </button>
+          <button type="button" class="thumb-card" aria-label="Show White-Label Customizer &amp; Mockup screenshot" aria-pressed="false" onclick="switchGalleryPhoto(4, '/assets/gateway_whitelabel_customizer.png?v=2', 'White-Label Customizer &amp; Mockup', 'Live smartphone reflection with instant brand logo, custom color palette, trust seals, and conversion banners.')">
+            <img src="/assets/gateway_whitelabel_customizer.png?v=2" alt="" loading="lazy" />
+          </button>
+        </div>
+      </div>
+
+      <div class="security-checklist-block" style="background:#ffffff; border:1px solid var(--border); border-radius:var(--radius-lg); padding:1.25rem 1.5rem; box-shadow:var(--shadow-sm);">
+        <div style="font-size:0.8rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.75rem;">
+          Security &amp; Core Capabilities
+        </div>
+        <ul class="feature-checklist">
+          <li><span class="chk">✓</span><span><strong>0% Gateway Fees:</strong> Direct bank settlement with zero aggregator fees.</span></li>
+          <li><span class="chk">✓</span><span><strong>WhatsApp-Based OTP Auth:</strong> Verifies buyers with WhatsApp OTP before checkout.</span></li>
+          <li><span class="chk">✓</span><span><strong>SMS &amp; Email Parsing:</strong> Automatically parses incoming bank SMS and Gmail alerts to verify payments.</span></li>
+          <li><span class="chk">✓</span><span><strong>Browser Fingerprinting:</strong> Identifies buyer devices and flags high-risk or repeat offenders.</span></li>
+          <li><span class="chk">✓</span><span><strong>Bans Fraudulent Users Instantly:</strong> Automatically bans fraudulent and suspicious users immediately.</span></li>
+          <li><span class="chk">✓</span><span><strong>Strict Payment Verification Parameters:</strong> Strictly verifies payment amount, transaction UTR, and timestamp.</span></li>
+          <li><span class="chk">✓</span><span><strong>POS Cashier Counter Desk:</strong> Counter checkout for walk-in cash and card payments.</span></li>
+          <li><span class="chk">✓</span><span><strong>100% White-Label:</strong> Custom merchant domain, logo, and branding.</span></li>
+        </ul>
       </div>
     </div>
   </main>
@@ -1614,8 +1684,8 @@ app.post('/api/youpi-webhook', express.raw({ type: 'application/json' }), (req, 
   </footer>
 
   <!-- LIGHTBOX MODAL FOR FULL-RES IMAGE INSPECTION -->
-  <div class="lightbox-modal" id="lightboxModal" onclick="closeLightbox(event)">
-    <button type="button" class="lightbox-close-btn" onclick="closeLightbox()">✕</button>
+  <div class="lightbox-modal" id="lightboxModal" role="dialog" aria-modal="true" aria-label="Enlarged gateway screenshot" aria-hidden="true" onclick="closeLightbox(event)">
+    <button type="button" class="lightbox-close-btn" aria-label="Close enlarged screenshot" onclick="closeLightbox()">✕</button>
     <img id="lightboxImg" class="lightbox-img" src="/assets/gateway_pc_checkout.png" alt="Enlarged Gateway Photo" />
   </div>
 
@@ -1682,20 +1752,25 @@ app.post('/api/youpi-webhook', express.raw({ type: 'application/json' }), (req, 
 
     // --- GALLERY CONTROLLER ---
     function switchGalleryPhoto(index, url, title, desc) {
+      if (!photos[index]) return;
       currentPhotoIndex = index;
       const mainImg = document.getElementById('mainGalleryImg');
       const badgeText = document.getElementById('galleryBadgeText');
+      const mainButton = document.querySelector('.gallery-main-viewport');
 
       if (mainImg) {
         mainImg.style.opacity = '0.3';
         mainImg.src = url;
+        mainImg.alt = title;
         setTimeout(() => { mainImg.style.opacity = '1'; }, 100);
       }
+      if (mainButton) mainButton.setAttribute('aria-label', `Enlarge ${title} screenshot`);
       if (badgeText) badgeText.textContent = title;
 
       // Update thumbnails active state
       document.querySelectorAll('.thumb-card').forEach((el, i) => {
         el.classList.toggle('active', i === index);
+        el.setAttribute('aria-pressed', String(i === index));
       });
     }
     function openLightbox() {
@@ -1704,38 +1779,54 @@ app.post('/api/youpi-webhook', express.raw({ type: 'application/json' }), (req, 
       if (modal && img) {
         img.src = photos[currentPhotoIndex].url;
         modal.classList.add('active');
+        modal.setAttribute('aria-hidden', 'false');
+        modal.querySelector('.lightbox-close-btn')?.focus();
       }
     }
 
-    function closeLightbox() {
+    function closeLightbox(event) {
       const modal = document.getElementById('lightboxModal');
-      if (modal) {
-        modal.classList.remove('active');
-      }
+      if (!modal || (event && event.target !== modal)) return;
+      modal.classList.remove('active');
+      modal.setAttribute('aria-hidden', 'true');
+      document.querySelector('.gallery-main-viewport')?.focus();
     }
 
     // --- AMOUNT MODIFIER & BUY BOX ---
     function selectAmount(amt, chipEl) {
       currentAmount = Number(amt);
+      const customInput = document.getElementById('customAmountInput');
+      if (customInput) {
+        customInput.value = currentAmount.toFixed(2);
+        customInput.removeAttribute('aria-invalid');
+      }
+      setAmountValidation(false);
       updateAmountUI();
 
       document.querySelectorAll('.chip-btn').forEach(b => b.classList.remove('active'));
       if (chipEl) chipEl.classList.add('active');
-      const customInput = document.getElementById('customAmountInput');
-      if (customInput) customInput.value = currentAmount.toFixed(2);
     }
 
     function handleCustomAmountInput(val) {
-      const num = parseFloat(val);
-      if (!isNaN(num) && num >= 1) {
+      const num = Number(val);
+      const valid = val.trim() !== '' && Number.isFinite(num) && num >= 1;
+      setAmountValidation(!valid);
+      const customInput = document.getElementById('customAmountInput');
+      if (customInput) customInput.toggleAttribute('aria-invalid', !valid);
+      if (valid) {
         currentAmount = num;
         updateAmountUI();
       }
       // Unset active chips if not exact match
       document.querySelectorAll('.chip-btn').forEach(b => {
         const chipVal = parseFloat(b.innerText.replace(/[^0-9.]/g, ''));
-        b.classList.toggle('active', chipVal === currentAmount);
+        b.classList.toggle('active', valid && chipVal === currentAmount);
       });
+    }
+
+    function setAmountValidation(invalid) {
+      const message = document.getElementById('amountValidationMessage');
+      if (message) message.hidden = !invalid;
     }
 
     function updateAmountUI() {
@@ -1749,6 +1840,13 @@ app.post('/api/youpi-webhook', express.raw({ type: 'application/json' }), (req, 
     // --- PURCHASE INITIATION (Using Official Universal YouPI Integration) ---
     async function startGatewayPurchase() {
       const btn = document.getElementById('btnInitiateCheckout');
+      const customInput = document.getElementById('customAmountInput');
+      if (!Number.isFinite(currentAmount) || currentAmount < 1 || (customInput && !customInput.checkValidity())) {
+        setAmountValidation(true);
+        customInput?.setAttribute('aria-invalid', 'true');
+        customInput?.focus();
+        return;
+      }
       const oldHtml = btn.innerHTML;
       btn.disabled = true;
       btn.innerHTML = '<span>⏳ Preparing Gateway Session...</span>';
