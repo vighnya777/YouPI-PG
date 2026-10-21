@@ -91,6 +91,9 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     assert.match(res.body, /<button type="button" class="gallery-main-viewport"/);
     assert.equal((res.body.match(/class="thumb-card(?: active)?"/g) || []).length, 5);
     assert.match(res.body, /class="amount-validation-message" role="status" aria-live="polite" hidden/);
+    assert.match(res.body, /id="mobileQuickCheckout" class="mobile-quick-checkout" href="#purchase" aria-label="Return to demo checkout" aria-controls="purchase" hidden/);
+    assert.match(res.body, /new IntersectionObserver\(\(\[entry\]\) => \{\s*mobileQuickCheckout\.hidden = entry\.isIntersecting;/);
+    assert.match(res.body, /id="mobileQuickCheckoutAmount">₹1\.00<\/span>/);
     assert.ok(res.body.indexOf('id="purchase"') < res.body.indexOf('id="gallery"'), 'mobile reading order should prioritize checkout before the gallery');
     assert.ok(res.body.indexOf('id="gallery"') < res.body.indexOf('class="security-checklist-block"'), 'gallery should precede the security checklist');
     assert.match(res.body, /\.details-column\s*\{\s*display:\s*contents;/);

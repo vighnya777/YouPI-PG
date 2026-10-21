@@ -546,6 +546,11 @@
       box-shadow: 0 10px 28px -4px rgba(37, 99, 235, 0.38);
       background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
     }
+    .btn-buy-primary:focus-visible,
+    .mobile-quick-checkout:focus-visible {
+      outline: 3px solid #93c5fd;
+      outline-offset: 3px;
+    }
     .btn-buy-primary:active {
       transform: translateY(0);
     }
@@ -927,6 +932,10 @@
       }
     }
 
+    .mobile-quick-checkout {
+      display: none;
+    }
+
     @media (max-width: 768px) {
       .top-announcement {
         font-size: 0.72rem;
@@ -1049,6 +1058,50 @@
         text-align: center;
         gap: 1rem;
         justify-content: center;
+      }
+      .mobile-quick-checkout {
+        position: fixed;
+        z-index: 99;
+        right: 0.75rem;
+        bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+        left: 0.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        min-height: 56px;
+        padding: 0.7rem 1rem;
+        border: 1px solid #1d4ed8;
+        border-radius: var(--radius-md);
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.28);
+        color: #ffffff;
+        font-size: 0.9rem;
+        font-weight: 800;
+        text-decoration: none;
+        animation: quickCheckoutIn 0.18s ease-out;
+      }
+      .mobile-quick-checkout[hidden] {
+        display: none !important;
+      }
+      .mobile-quick-checkout span:last-child {
+        flex: 0 0 auto;
+        border-radius: 9999px;
+        background: rgba(255, 255, 255, 0.16);
+        padding: 0.3rem 0.6rem;
+        font-variant-numeric: tabular-nums;
+      }
+    }
+
+    @keyframes quickCheckoutIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .mobile-quick-checkout {
+        animation: none;
+        scroll-behavior: auto;
       }
     }
   </style>
@@ -1683,6 +1736,11 @@ app.post('/api/youpi-webhook', express.raw({ type: 'application/json' }), (req, 
     </div>
   </footer>
 
+  <a id="mobileQuickCheckout" class="mobile-quick-checkout" href="#purchase" aria-label="Return to demo checkout" aria-controls="purchase" hidden>
+    <span>Choose demo amount</span>
+    <span id="mobileQuickCheckoutAmount">₹1.00</span>
+  </a>
+
   <!-- LIGHTBOX MODAL FOR FULL-RES IMAGE INSPECTION -->
   <div class="lightbox-modal" id="lightboxModal" role="dialog" aria-modal="true" aria-label="Enlarged gateway screenshot" aria-hidden="true" onclick="closeLightbox(event)">
     <button type="button" class="lightbox-close-btn" aria-label="Close enlarged screenshot" onclick="closeLightbox()">✕</button>
@@ -1833,8 +1891,19 @@ app.post('/api/youpi-webhook', express.raw({ type: 'application/json' }), (req, 
       const formatted = '₹' + currentAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const dispEl = document.getElementById('displayPrice');
       const btnDisp = document.getElementById('btnAmountDisplay');
+      const quickCheckoutAmount = document.getElementById('mobileQuickCheckoutAmount');
       if (dispEl) dispEl.textContent = formatted;
       if (btnDisp) btnDisp.textContent = formatted;
+      if (quickCheckoutAmount) quickCheckoutAmount.textContent = formatted;
+    }
+
+    const purchaseBox = document.getElementById('purchase');
+    const mobileQuickCheckout = document.getElementById('mobileQuickCheckout');
+    if (purchaseBox && mobileQuickCheckout && 'IntersectionObserver' in window) {
+      const purchaseObserver = new IntersectionObserver(([entry]) => {
+        mobileQuickCheckout.hidden = entry.isIntersecting;
+      }, { threshold: 0.1 });
+      purchaseObserver.observe(purchaseBox);
     }
 
     // --- PURCHASE INITIATION (Using Official Universal YouPI Integration) ---
