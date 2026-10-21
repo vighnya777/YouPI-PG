@@ -87,7 +87,7 @@ describe('Control Center Supervisor Integration Tests', () => {
     const res = await get('/api/services', ADMIN_AUTH);
     assert.equal(res.status, 200);
     assert.ok(Array.isArray(res.body));
-    assert.equal(res.body.length, 6);
+    assert.equal(res.body.length, 7);
 
     const ids = res.body.map(s => s.id);
     assert.ok(ids.includes('payment-api'));
@@ -96,11 +96,30 @@ describe('Control Center Supervisor Integration Tests', () => {
     assert.ok(ids.includes('gmail-observer'));
     assert.ok(ids.includes('sms-observer'));
     assert.ok(ids.includes('coin-wallet-store'));
+    assert.ok(ids.includes('payment-help'));
 
     for (const s of res.body) {
       assert.equal(s.status, 'STOPPED');
       assert.ok(s.port > 0);
     }
+  });
+
+  test('GET /api/logs/stream accepts the admin token in its query for EventSource', async () => {
+    pm.appendLog('payment-api', 'stdout', 'SSE authentication test');
+    const response = await new Promise((resolve, reject) => {
+      const request = http.get(
+        `${baseUrl}/api/logs/stream?token=${encodeURIComponent(getAdminToken())}`,
+        res => {
+          res.once('data', () => {
+            res.destroy();
+            resolve({ status: res.statusCode, contentType: res.headers['content-type'] });
+          });
+        }
+      );
+      request.on('error', reject);
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.contentType, 'text/event-stream');
   });
 
   test('Log buffer captures entries and limits size', () => {

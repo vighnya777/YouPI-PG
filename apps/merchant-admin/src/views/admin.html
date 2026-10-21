@@ -200,7 +200,7 @@
     }
 
     body {
-      background: var(--bg);
+      background: radial-gradient(ellipse at top, var(--primary-light), transparent 42rem), var(--bg);
       color: var(--text);
       min-height: 100vh;
       display: flex;
@@ -216,6 +216,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 1rem;
       position: sticky;
       top: 0;
       z-index: 1000;
@@ -226,6 +227,7 @@
       display: flex;
       align-items: center;
       gap: 0.85rem;
+      min-width: 0;
     }
 
     .brand-title {
@@ -236,6 +238,7 @@
       align-items: center;
       gap: 0.5rem;
       letter-spacing: -0.02em;
+      white-space: nowrap;
     }
 
     .brand-badge {
@@ -248,13 +251,21 @@
       border: 1px solid var(--badge-info-border);
       text-transform: uppercase;
       letter-spacing: 0.04em;
+      white-space: nowrap;
     }
 
     .header-quick-stats {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
+      justify-content: flex-end;
+      gap: 0.55rem;
       flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    .header-context-button {
+      font: inherit;
+      cursor: pointer;
     }
 
     /* Real Light / Dark Mode Toggle Pill */
@@ -354,7 +365,7 @@
       background: var(--nav-bg);
       border-bottom: 1px solid var(--nav-border);
       display: flex;
-      gap: 0.5rem;
+      gap: 0.35rem;
       padding: 0 1.75rem;
       overflow-x: auto;
       position: sticky;
@@ -363,7 +374,10 @@
     }
 
     .main-nav-btn {
-      padding: 0.95rem 1.4rem;
+      flex: 1 1 auto;
+      justify-content: center;
+      text-align: center;
+      padding: 0.85rem 0.8rem;
       cursor: pointer;
       border: none;
       background: transparent;
@@ -400,12 +414,14 @@
       background: var(--subnav-bg);
       border-bottom: 1px solid var(--subnav-border);
       display: flex;
+      flex-wrap: wrap;
+      align-content: start;
       gap: 0.5rem;
       padding: 0.65rem 1.75rem;
-      overflow-x: auto;
     }
 
     .sub-nav-pill {
+      flex: 0 1 auto;
       padding: 0.45rem 1rem;
       cursor: pointer;
       border: 1px solid var(--pill-border);
@@ -431,6 +447,16 @@
       background: var(--primary);
       border-color: var(--primary);
       box-shadow: 0 2px 10px var(--primary-glow);
+    }
+
+    button:focus-visible,
+    [role="button"]:focus-visible,
+    a:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible {
+      outline: 3px solid var(--border-focus);
+      outline-offset: 2px;
     }
 
     main {
@@ -972,7 +998,7 @@
       padding: 8px 12px;
     }
 
-    @media (max-width: 900px) {
+    @media (max-width: 1100px) {
       header {
         flex-wrap: wrap;
         gap: 0.75rem;
@@ -981,7 +1007,6 @@
 
       .brand-group {
         flex: 1 1 100%;
-        min-width: 0;
       }
 
       .header-quick-stats {
@@ -990,22 +1015,40 @@
       }
 
       .main-nav-bar {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         position: static;
         padding-inline: 1rem;
-        scrollbar-width: none;
       }
 
       .sub-nav-bar {
-        scrollbar-width: none;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        padding-inline: 1rem;
       }
 
-      .main-nav-bar::-webkit-scrollbar,
-      .sub-nav-bar::-webkit-scrollbar {
-        display: none;
+      .main-nav-btn {
+        min-width: 0;
+        white-space: normal;
+        line-height: 1.3;
+      }
+
+      .sub-nav-pill {
+        justify-content: center;
+        text-align: center;
+        white-space: normal;
+        line-height: 1.3;
       }
 
       main {
         padding: 1.25rem;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .main-nav-btn {
+        padding: 0.75rem 0.55rem;
+        font-size: 0.84rem;
       }
     }
 
@@ -1085,6 +1128,17 @@
         word-break: break-word;
       }
     }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
   </style>
 </head>
 
@@ -1107,26 +1161,26 @@
       </button>
 
       <!-- YOUPI Store Port 5000 Switch Badge -->
-      <div class="store-switch-badge is-offline" id="headerStoreBadge" onclick="toggleYoupiStore()"
+      <button type="button" class="store-switch-badge is-offline" id="headerStoreBadge" onclick="toggleYoupiStore()"
         title="Click to 1-Click Enable/Disable YOUPI Showcase Store on Port 5000">
         <span id="headerStoreDot">●</span>
         <span id="headerStoreText">Store (5000): Checking...</span>
-      </div>
+      </button>
 
       <!-- Active VPA Display -->
-      <span class="badge badge-info" id="accountVpaDisplay" style="cursor:pointer;"
-        onclick="switchSection('storeSettings', 'subTabVpa')">
+      <button type="button" class="badge badge-info header-context-button" id="accountVpaDisplay"
+        onclick="switchSection('storeSettings', 'subViewStoreVpa')">
         VPA: Loading...
-      </span>
+      </button>
 
       <!-- Environment Mode -->
-      <div
-        style="display:flex; align-items:center; gap:0.4rem; background:var(--bg-card); padding:0.3rem 0.75rem; border-radius:9999px; border:1px solid var(--border); cursor:pointer;"
+      <button type="button" class="header-context-button"
+        style="display:flex; align-items:center; gap:0.4rem; background:var(--bg-card); padding:0.3rem 0.75rem; border-radius:9999px; border:1px solid var(--border);"
         onclick="switchSection('developerHub', 'subViewDevCloudflare')">
         <span style="font-size:0.72rem; color:var(--text-muted); font-weight:700;">ENV:</span>
         <span class="badge badge-info" id="headerEnvBadge" style="font-size:0.72rem; padding:0.15rem 0.5rem;">💻
           LOCALHOST</span>
-      </div>
+      </button>
 
       <!-- Live Polling Indicator -->
       <div class="live-pulse-badge">
@@ -1137,27 +1191,31 @@
   </header>
 
   <!-- MAIN NAVIGATION BAR: 3 HIGH-LEVEL SECTIONS -->
-  <nav class="main-nav-bar">
-    <button class="main-nav-btn active" id="mainNavOperations" onclick="switchSection('operations')">
+  <nav class="main-nav-bar" aria-label="Main navigation">
+    <button type="button" class="main-nav-btn active" id="mainNavOperations" data-section-id="operations"
+      aria-current="page" aria-pressed="true" onclick="switchSection('operations')">
       <span>🏪</span>
       <span>Daily Merchant Operations</span>
     </button>
-    <button class="main-nav-btn" id="mainNavStoreSettings" onclick="switchSection('storeSettings')">
+    <button type="button" class="main-nav-btn" id="mainNavStoreSettings" data-section-id="storeSettings"
+      aria-pressed="false" onclick="switchSection('storeSettings')">
       <span>⚙️</span>
       <span>Store Settings</span>
     </button>
-    <button class="main-nav-btn" id="mainNavDeveloperHub" onclick="switchSection('developerHub')">
+    <button type="button" class="main-nav-btn" id="mainNavDeveloperHub" data-section-id="developerHub"
+      aria-pressed="false" onclick="switchSection('developerHub')">
       <span>🛠️</span>
       <span>Developer &amp; Infrastructure Hub</span>
     </button>
-    <button class="main-nav-btn" id="mainNavSecurity" onclick="switchSection('security')">
+    <button type="button" class="main-nav-btn" id="mainNavSecurity" data-section-id="security" aria-pressed="false"
+      onclick="switchSection('security')">
       <span>🛡️</span>
       <span>Security</span>
     </button>
   </nav>
 
   <!-- SECONDARY SUB-NAVIGATION BAR (Dynamically adapts per section) -->
-  <nav class="sub-nav-bar" id="subNavBar">
+  <nav class="sub-nav-bar" id="subNavBar" aria-label="Section navigation">
     <!-- Filled dynamically or toggled based on current section -->
   </nav>
 
@@ -3501,7 +3559,9 @@
       const clear = () => { try { sessionStorage.removeItem(KEY); } catch (e) {} };
 
       function isProtected(url) {
-        return /\/api\/v1\/admin\//.test(url) && !/\/admin\/sms-gateway\/download-apk/.test(url);
+        return (/\/api\/v1\/admin\//.test(url) && !/\/admin\/sms-gateway\/download-apk/.test(url)) ||
+          /\/api\/services(?:\/|$)/.test(url) ||
+          /\/api\/logs\/stream(?:\?|$)/.test(url);
       }
 
       function prompt(message) {
@@ -3521,7 +3581,7 @@
           input.type = 'password';
           input.autocomplete = 'off';
           input.required = true;
-          input.style.cssText = 'width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd5e1;border-radius:8px;margin-bottom:12px';
+          input.style.cssText = 'width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd5e1;border-radius:8px;margin-bottom:12px;background:#fff;color:#0f172a;font-size:16px';
           const btn = document.createElement('button');
           btn.type = 'submit';
           btn.textContent = 'Unlock';
@@ -3641,6 +3701,10 @@
 
     // --- NAVIGATION CONTROLLER: 3 HIGH-LEVEL SECTIONS ---
     function switchSection(sectionId, targetSubTab = null) {
+      if (!['operations', 'storeSettings', 'developerHub', 'security'].includes(sectionId)) {
+        console.warn(`Ignoring unknown Admin section: ${sectionId}`);
+        return;
+      }
       activeSection = sectionId;
 
       // Sync URL hash without jumping
@@ -3653,7 +3717,13 @@
       } catch (e) { }
 
       // Update main nav buttons
-      document.querySelectorAll('.main-nav-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.main-nav-btn').forEach(b => {
+        const isActive = b.dataset.sectionId === sectionId;
+        b.classList.toggle('active', isActive);
+        b.setAttribute('aria-pressed', String(isActive));
+        if (isActive) b.setAttribute('aria-current', 'page');
+        else b.removeAttribute('aria-current');
+      });
       if (sectionId === 'operations') document.getElementById('mainNavOperations').classList.add('active');
       if (sectionId === 'storeSettings') document.getElementById('mainNavStoreSettings').classList.add('active');
       if (sectionId === 'developerHub') document.getElementById('mainNavDeveloperHub').classList.add('active');
@@ -3717,7 +3787,7 @@
         ];
       }
 
-      let defaultSub = targetSubTab || items[0].id;
+      const defaultSub = items.some(item => item.id === targetSubTab) ? targetSubTab : items[0].id;
       items.forEach(item => {
         const btn = document.createElement('button');
         btn.className = `sub-nav-pill ${item.id === defaultSub ? 'active' : ''}`;
@@ -3857,11 +3927,11 @@
       if (hBadge && hText) {
         if (isRunning) {
           hBadge.className = 'store-switch-badge is-online';
-          hText.textContent = 'Store (5000): ONLINE';
+          hText.textContent = `Store (${store.port}): ONLINE`;
           hDot.textContent = '🟢';
         } else {
           hBadge.className = 'store-switch-badge is-offline';
-          hText.textContent = 'Store (5000): DISABLED';
+          hText.textContent = `Store (${store?.port || 5000}): DISABLED`;
           hDot.textContent = '🔴';
         }
       }
@@ -3958,8 +4028,10 @@
     let rawLogsBuffer = [];
     function connectServicesLogsSse() {
       if (servicesLogsSse) return;
+      const token = window.__youpiAdminAuth.token();
+      if (!token) return;
       try {
-        servicesLogsSse = new EventSource('/api/logs/stream');
+        servicesLogsSse = new EventSource(`/api/logs/stream?token=${encodeURIComponent(token)}`);
         servicesLogsSse.addEventListener('log', (e) => {
           try {
             const entry = JSON.parse(e.data);
@@ -4669,11 +4741,18 @@
       if (!confirm(`Are you sure you want to delete VPA "${upiId}"?`)) return;
       try {
         const res = await fetch(`${API_BASE}/api/v1/admin/upi-accounts/${accountId}`, { method: 'DELETE' });
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
-          showAdminToast(`VPA "${upiId}" deleted.`);
-          fetchGatewaySettings();
+          showAdminToast(data.archived
+            ? `VPA "${upiId}" removed from active accounts. Historical payment records were preserved.`
+            : `VPA "${upiId}" deleted.`);
+          await fetchGatewaySettings();
+        } else {
+          alert(data.error || `Failed to delete VPA "${upiId}" (HTTP ${res.status}).`);
         }
-      } catch (e) { }
+      } catch (e) {
+        alert(`Network error deleting VPA "${upiId}": ${e.message}`);
+      }
     }
 
     async function saveMerchantBrandingAndToggles() {
@@ -5058,13 +5137,14 @@ The gateway routes paths internally:
         const devBadge = document.getElementById('smsDevBadge');
 
         const devices = data.devices || [];
+        const onlineCount = devices.filter(d => d.isConnected === true || d.status === 'CONNECTED').length;
         if (badge) {
-          badge.className = devices.length > 0 ? 'badge badge-success' : 'badge badge-info';
-          badge.innerText = devices.length > 0 ? `${devices.length} PAIRED` : 'STANDBY';
+          badge.className = onlineCount > 0 ? 'badge badge-success' : (devices.length > 0 ? 'badge badge-warning' : 'badge badge-info');
+          badge.innerText = devices.length > 0 ? `${onlineCount}/${devices.length} ONLINE` : 'STANDBY';
         }
         if (devBadge) {
-          devBadge.className = devices.length > 0 ? 'badge badge-success' : 'badge badge-info';
-          devBadge.innerText = devices.length > 0 ? `${devices.length} PAIRED` : 'STANDBY';
+          devBadge.className = onlineCount > 0 ? 'badge badge-success' : (devices.length > 0 ? 'badge badge-warning' : 'badge badge-info');
+          devBadge.innerText = devices.length > 0 ? `${onlineCount}/${devices.length} ONLINE` : 'STANDBY';
         }
 
         if (!tbody) return;
@@ -5077,12 +5157,17 @@ The gateway routes paths internally:
           const name = d.deviceName || d.device_name || d.deviceModel || 'Android Observer';
           const id = d.deviceId || d.id || '-';
           const rawTime = d.pairedAt || d.createdAt || d.created_at;
-          const timeStr = rawTime ? new Date(rawTime).toLocaleTimeString() : 'Active';
+          const pairedTime = rawTime ? new Date(rawTime).toLocaleTimeString() : 'Unknown';
+          const lastHeartbeat = d.lastHeartbeatAt || d.last_heartbeat_at;
+          const heartbeatTime = lastHeartbeat ? new Date(lastHeartbeat).toLocaleString() : 'Never connected';
+          const isConnected = d.isConnected === true || d.status === 'CONNECTED';
+          const deviceStatus = isConnected ? 'ONLINE' : 'OFFLINE';
+          const statusColor = isConnected ? '#10b981' : '#f87171';
           return `
         <tr>
           <td><strong>${escapeHtml(name)}</strong></td>
           <td><code style="font-size:0.75rem; color:#38bdf8;">${escapeHtml(id)}</code></td>
-          <td><span style="font-size:0.75rem; color:var(--text-muted);">${timeStr}</span></td>
+          <td><span style="font-size:0.75rem; color:${statusColor};">${deviceStatus}</span><br><span style="font-size:0.72rem; color:var(--text-muted);">Last heartbeat: ${escapeHtml(heartbeatTime)} · Paired: ${escapeHtml(pairedTime)}</span></td>
           <td>
             <button class="btn btn-danger" style="padding:0.25rem 0.6rem; font-size:0.72rem;" onclick="unpairSmsDevice('${escapeHtml(id)}')">Unpair</button>
           </td>

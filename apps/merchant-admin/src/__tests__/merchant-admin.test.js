@@ -53,6 +53,20 @@ describe('Merchant Admin Integration Tests', () => {
     assert.ok(res.text.includes('Android SMS Gateway'));
     assert.ok(res.text.includes('Gmail Direct API'));
     assert.ok(res.text.includes('href="https://pay.example.com/store" id="btnOpenStoreLink"'));
+    assert.ok(res.text.includes('isProtected(url)'));
+    assert.ok(res.text.includes('services(?:'));
+    assert.ok(res.text.includes('/api/logs/stream?token=${encodeURIComponent(token)}'));
+    assert.ok(res.text.includes('Last heartbeat: ${escapeHtml(heartbeatTime)}'));
+    assert.ok(res.text.includes('Never connected'));
+    assert.ok(res.text.includes('ONLINE'));
+    assert.ok(res.text.includes('Historical payment records were preserved.'));
+    assert.ok(res.text.includes('Failed to delete VPA'));
+    assert.ok(res.text.includes("switchSection('storeSettings', 'subViewStoreVpa')"));
+    assert.ok(res.text.includes("if (!['operations', 'storeSettings', 'developerHub', 'security'].includes(sectionId))"));
+    assert.ok(res.text.includes('grid-template-columns: repeat(3, minmax(0, 1fr))'));
+    assert.ok(res.text.includes('button:focus-visible'));
+    assert.ok(res.text.includes('prefers-reduced-motion: reduce'));
+    assert.ok(res.text.includes('background:#fff;color:#0f172a;font-size:16px'));
   });
 
   test('GET / renders responsive developer hub and stable sub-navigation state', async () => {
