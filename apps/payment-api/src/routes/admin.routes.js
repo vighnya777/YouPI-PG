@@ -563,18 +563,22 @@ export function registerAdminRoutes(server, ctx) {
     }
 
     try {
-      ctx.accountRepo.deleteAccount(account.merchantId, account.id);
+      const deletion = ctx.accountRepo.deleteAccount(account.merchantId, account.id);
       ctx.auditRepo.log({
         merchantId: account.merchantId,
         entityType: 'PAYMENT_RECEIVING_ACCOUNT',
         entityId: account.id,
-        action: 'RECEIVING_UPI_DELETED',
+        action: deletion.archived ? 'RECEIVING_UPI_ARCHIVED' : 'RECEIVING_UPI_DELETED',
         actorType: AuditActorType.ADMIN,
-        details: { upiId: account.upiId }
+        details: { upiId: account.upiId, archived: deletion.archived }
       });
-      HttpServer.json(res, 200, { success: true, deletedId: account.id });
+      HttpServer.json(res, 200, {
+        success: true,
+        deletedId: account.id,
+        archived: deletion.archived
+      });
     } catch (err) {
-      HttpServer.json(res, 400, { error: err.message });
+      HttpServer.json(res, 409, { error: err.message });
     }
   });
 
@@ -2395,4 +2399,3 @@ export function registerAdminRoutes(server, ctx) {
     });
   });
 }
-

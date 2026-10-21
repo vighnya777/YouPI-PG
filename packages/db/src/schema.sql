@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS payment_receiving_accounts (
     payee_name VARCHAR(255) NOT NULL,
     is_merchant_enabled BOOLEAN NOT NULL DEFAULT true,
     is_active BOOLEAN NOT NULL DEFAULT true,
+    is_deleted INTEGER NOT NULL DEFAULT 0,
     is_slot_busy BOOLEAN NOT NULL DEFAULT false,
     current_active_session_id TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -228,4 +229,3 @@ CREATE INDEX IF NOT EXISTS idx_devices_customer ON devices (customer_id);
 CREATE INDEX IF NOT EXISTS idx_devices_fingerprint ON devices (fingerprint_hash);
 CREATE INDEX IF NOT EXISTS idx_devices_token ON devices (device_token);
 CREATE INDEX IF NOT EXISTS idx_payment_sessions_device ON payment_sessions (device_id);
-

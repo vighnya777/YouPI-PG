@@ -73,6 +73,53 @@ describe('Architectural Update: Selling Modes (Online vs Offline), COD Flow, & C
     assert.equal(getRes.body.payeeName, 'SuperStore Retail');
   });
 
+  test('VPA delete archives accounts with payment history and deletes unused accounts', async () => {
+    const historicalAccount = await request('/api/v1/admin/upi-accounts', {
+      method: 'POST',
+      body: {
+        upiId: 'history@okhdfcbank',
+        payeeName: 'Historical Account',
+        isActive: false
+      }
+    });
+    assert.equal(historicalAccount.status, 201);
+
+    apiInstance.app.context.sessionRepo.create({
+      merchantId: historicalAccount.body.account.merchantId,
+      receivingAccountId: historicalAccount.body.account.id,
+      orderId: 'ORDER-VPA-HISTORY',
+      amountPaise: 100n
+    });
+
+    const blockedDelete = await request(`/api/v1/admin/upi-accounts/${historicalAccount.body.account.id}`, {
+      method: 'DELETE'
+    });
+    assert.equal(blockedDelete.status, 200);
+    assert.equal(blockedDelete.body.archived, true);
+    assert.equal(apiInstance.app.context.accountRepo.findById(historicalAccount.body.account.id).isDeleted, true);
+    assert.equal(
+      apiInstance.app.context.accountRepo.findByMerchantId(historicalAccount.body.account.merchantId)
+        .some(account => account.id === historicalAccount.body.account.id),
+      false
+    );
+
+    const unusedAccount = await request('/api/v1/admin/upi-accounts', {
+      method: 'POST',
+      body: {
+        upiId: 'unused@okhdfcbank',
+        payeeName: 'Unused Account',
+        isActive: false
+      }
+    });
+    assert.equal(unusedAccount.status, 201);
+
+    const deleted = await request(`/api/v1/admin/upi-accounts/${unusedAccount.body.account.id}`, {
+      method: 'DELETE'
+    });
+    assert.equal(deleted.status, 200);
+    assert.equal(deleted.body.deletedId, unusedAccount.body.account.id);
+  });
+
   test('2. Online Selling Mode Configuration & Method Invariants', async () => {
     // Merchant configures Online Selling Mode with Cash on Delivery enabled
     const saveRes = await request('/api/v1/admin/merchant-settings', {

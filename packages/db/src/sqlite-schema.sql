@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS payment_receiving_accounts (
     payee_name TEXT NOT NULL,
     is_merchant_enabled INTEGER NOT NULL DEFAULT 1,
     is_active INTEGER NOT NULL DEFAULT 1,
+    is_deleted INTEGER NOT NULL DEFAULT 0,
     is_slot_busy INTEGER NOT NULL DEFAULT 0,
     current_active_session_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -236,5 +237,4 @@ CREATE INDEX IF NOT EXISTS idx_devices_customer ON devices (customer_id);
 CREATE INDEX IF NOT EXISTS idx_devices_fingerprint ON devices (fingerprint_hash);
 CREATE INDEX IF NOT EXISTS idx_devices_token ON devices (device_token);
 CREATE INDEX IF NOT EXISTS idx_payment_sessions_device ON payment_sessions (device_id);
-
 

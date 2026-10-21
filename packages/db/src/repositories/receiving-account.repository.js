@@ -62,7 +62,7 @@ export class ReceivingAccountRepository {
 
   findByMerchantId(merchantId) {
     const rows = this.db.query(
-      'SELECT * FROM payment_receiving_accounts WHERE merchant_id = ? ORDER BY is_active DESC, created_at ASC',
+      'SELECT * FROM payment_receiving_accounts WHERE merchant_id = ? AND is_deleted = 0 ORDER BY is_active DESC, created_at ASC',
       [merchantId]
     );
     return rows.map(r => this.mapRow(r));
@@ -70,7 +70,7 @@ export class ReceivingAccountRepository {
 
   findActiveForMerchant(merchantId) {
     const row = this.db.queryOne(
-      'SELECT * FROM payment_receiving_accounts WHERE merchant_id = ? AND is_active = 1 LIMIT 1',
+      'SELECT * FROM payment_receiving_accounts WHERE merchant_id = ? AND is_active = 1 AND is_deleted = 0 LIMIT 1',
       [merchantId]
     );
     if (!row) return null;
@@ -83,6 +83,10 @@ export class ReceivingAccountRepository {
    */
   activateAccount(merchantId, accountId) {
     return this.db.transaction(() => {
+      const target = this.findById(accountId);
+      if (!target || target.merchantId !== merchantId || target.isDeleted) {
+        throw new Error(`Account not found or has been deleted: ${accountId}`);
+      }
       const now = new Date().toISOString();
 
       // Deactivate all existing accounts for this merchant
@@ -175,12 +179,30 @@ export class ReceivingAccountRepository {
       throw new Error(`Account not found or does not belong to merchant: ${accountId}`);
     }
 
+    if (account.isDeleted) {
+      throw new Error(`Account has already been deleted: ${accountId}`);
+    }
+
     if (account.isSlotBusy || account.currentActiveSessionId) {
       throw new Error(`Cannot delete account ${account.upiId} because it has an active checkout session.`);
     }
 
+    const paymentHistory = this.db.queryOne(
+      'SELECT COUNT(*) AS count FROM payment_sessions WHERE receiving_account_id = ?',
+      [accountId]
+    );
+    if (Number(paymentHistory?.count || 0) > 0) {
+      const now = new Date().toISOString();
+      this.db.execute(`
+        UPDATE payment_receiving_accounts
+        SET is_deleted = 1, is_active = 0, is_merchant_enabled = 0, updated_at = ?
+        WHERE id = ? AND merchant_id = ?
+      `, [now, accountId, merchantId]);
+      return { archived: true };
+    }
+
     this.db.execute('DELETE FROM payment_receiving_accounts WHERE id = ? AND merchant_id = ?', [accountId, merchantId]);
-    return true;
+    return { archived: false };
   }
 
   /**
@@ -235,6 +257,7 @@ export class ReceivingAccountRepository {
       payeeName: row.payee_name,
       isMerchantEnabled: Boolean(row.is_merchant_enabled !== undefined ? row.is_merchant_enabled : 1),
       isActive: Boolean(row.is_active),
+      isDeleted: Boolean(row.is_deleted),
       isSlotBusy: Boolean(row.is_slot_busy),
       currentActiveSessionId: row.current_active_session_id,
       createdAt: new Date(row.created_at),
