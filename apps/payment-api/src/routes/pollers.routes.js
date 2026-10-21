@@ -434,23 +434,30 @@ export function registerPollerRoutes(server, ctx) {
       ORDER BY created_at DESC
     `, [merchantId]);
 
-    const devices = (rawDevices || []).map(d => ({
-      id: d.id,
-      deviceId: d.id,
-      deviceName: d.device_name || d.device_model || 'Android Observer',
-      device_name: d.device_name || d.device_model || 'Android Observer',
-      deviceModel: d.device_model,
-      device_model: d.device_model,
-      isActive: Boolean(d.is_active),
-      is_active: d.is_active,
-      lastHeartbeatAt: d.last_heartbeat_at,
-      last_heartbeat_at: d.last_heartbeat_at,
-      lastObservationAt: d.last_observation_at,
-      last_observation_at: d.last_observation_at,
-      createdAt: d.created_at,
-      created_at: d.created_at,
-      pairedAt: d.created_at
-    }));
+    const devices = (rawDevices || []).map(d => {
+      const heartbeatAt = d.last_heartbeat_at ? new Date(d.last_heartbeat_at).getTime() : 0;
+      const heartbeatAgeMs = Date.now() - heartbeatAt;
+      const isConnected = Number.isFinite(heartbeatAt) && heartbeatAgeMs >= 0 && heartbeatAgeMs < 180000;
+      return {
+        id: d.id,
+        deviceId: d.id,
+        deviceName: d.device_name || d.device_model || 'Android Observer',
+        device_name: d.device_name || d.device_model || 'Android Observer',
+        deviceModel: d.device_model,
+        device_model: d.device_model,
+        isActive: Boolean(d.is_active),
+        is_active: d.is_active,
+        isConnected,
+        status: isConnected ? 'CONNECTED' : 'DISCONNECTED',
+        lastHeartbeatAt: d.last_heartbeat_at,
+        last_heartbeat_at: d.last_heartbeat_at,
+        lastObservationAt: d.last_observation_at,
+        last_observation_at: d.last_observation_at,
+        createdAt: d.created_at,
+        created_at: d.created_at,
+        pairedAt: d.created_at
+      };
+    });
 
     HttpServer.json(res, 200, {
       qrSvg,
@@ -481,23 +488,30 @@ export function registerPollerRoutes(server, ctx) {
       ORDER BY created_at DESC
     `, [merchantId]);
 
-    const devices = (rawDevices || []).map(d => ({
-      id: d.id,
-      deviceId: d.id,
-      deviceName: d.device_name || d.device_model || 'Android Observer',
-      device_name: d.device_name || d.device_model || 'Android Observer',
-      deviceModel: d.device_model,
-      device_model: d.device_model,
-      isActive: Boolean(d.is_active),
-      is_active: d.is_active,
-      lastHeartbeatAt: d.last_heartbeat_at,
-      last_heartbeat_at: d.last_heartbeat_at,
-      lastObservationAt: d.last_observation_at,
-      last_observation_at: d.last_observation_at,
-      createdAt: d.created_at,
-      created_at: d.created_at,
-      pairedAt: d.created_at
-    }));
+    const devices = (rawDevices || []).map(d => {
+      const heartbeatAt = d.last_heartbeat_at ? new Date(d.last_heartbeat_at).getTime() : 0;
+      const heartbeatAgeMs = Date.now() - heartbeatAt;
+      const isConnected = Number.isFinite(heartbeatAt) && heartbeatAgeMs >= 0 && heartbeatAgeMs < 180000;
+      return {
+        id: d.id,
+        deviceId: d.id,
+        deviceName: d.device_name || d.device_model || 'Android Observer',
+        device_name: d.device_name || d.device_model || 'Android Observer',
+        deviceModel: d.device_model,
+        device_model: d.device_model,
+        isActive: Boolean(d.is_active),
+        is_active: d.is_active,
+        isConnected,
+        status: isConnected ? 'CONNECTED' : 'DISCONNECTED',
+        lastHeartbeatAt: d.last_heartbeat_at,
+        last_heartbeat_at: d.last_heartbeat_at,
+        lastObservationAt: d.last_observation_at,
+        last_observation_at: d.last_observation_at,
+        createdAt: d.created_at,
+        created_at: d.created_at,
+        pairedAt: d.created_at
+      };
+    });
 
     HttpServer.json(res, 200, { devices });
   });

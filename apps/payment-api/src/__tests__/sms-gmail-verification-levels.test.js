@@ -145,6 +145,17 @@ describe('2-Level Verification (SMS Gateway + Gmail) & Queue Management Tests', 
     assert.ok(pairData.deviceId);
     assert.ok(pairData.signingKey);
 
+    testDb.execute(
+      'UPDATE android_devices SET last_heartbeat_at = ? WHERE id = ?',
+      [new Date(Date.now() - 240000).toISOString(), pairData.deviceId]
+    );
+    const devicesRes = await authFetch(`${baseUrl}/api/v1/admin/sms-gateway/devices`);
+    assert.equal(devicesRes.status, 200);
+    const devicesData = await devicesRes.json();
+    const pairedDevice = devicesData.devices.find(device => device.deviceId === pairData.deviceId);
+    assert.equal(pairedDevice.status, 'DISCONNECTED');
+    assert.equal(pairedDevice.isConnected, false);
+
     // 3. Create active payment session for ₹450
     const sessionRepo = apiInstance.app.context.sessionRepo;
     const receivingAccountId = '00000000-0000-0000-0000-000000000002';

@@ -6,7 +6,28 @@ import { authFetch } from '../../../../scripts/test-support.js';
 
 test('WhatsApp Berry Protocol OTP Customer Auth & Merchant Configuration Suite', async (t) => {
   const customDb = new Database({ inMemory: true });
-  const app = createPaymentApp(customDb, { otpCooldownMs: 0 });
+  let berryStatus = 'DISCONNECTED';
+  const berry = {
+    sendOtp: async () => ({ success: true, delivered: true, simulated: true }),
+    getClientInfo: () => ({
+      phoneNumber: null,
+      platform: 'BerryProtocol v0.1.10',
+      sessionId: 'test-session',
+      status: berryStatus,
+      isConnected: berryStatus === 'CONNECTED'
+    }),
+    getQrCode: () => ({ raw: 'test-qr', dataUrl: 'data:image/png;base64,dGVzdA==' }),
+    getStatus: () => berryStatus,
+    initialize: async () => { berryStatus = 'QR_READY'; },
+    reconnect: async () => { berryStatus = 'QR_READY'; },
+    waitForQrCode: async () => berry.getQrCode(),
+    requestPairingCode: async phoneNumber => ({
+      pairingCode: '12345678',
+      phoneNumber
+    }),
+    disconnect: async () => { berryStatus = 'DISCONNECTED'; }
+  };
+  const app = createPaymentApp(customDb, { otpCooldownMs: 0, whatsappBerryService: berry });
   const testPort = 6288;
 
   const serverInstance = await new Promise(resolve => {
@@ -120,7 +141,25 @@ test('WhatsApp Berry Protocol OTP Customer Auth & Merchant Configuration Suite',
 
   let loginOtp = null;
 
-  await t.test('7. POST /api/v1/customer/send-otp dispatches WhatsApp OTP for existing user', async () => {
+  await t.test('7. POST /api/v1/customer/send-otp reports failed WhatsApp delivery', async () => {
+    berry.sendOtp = async () => ({ success: false, delivered: false, status: 'DISCONNECTED' });
+    try {
+      const res = await authFetch(`${apiBase}/api/v1/customer/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mobileNumber: '9123456789' })
+      });
+      assert.equal(res.status, 503);
+      const data = await res.json();
+      assert.equal(data.success, false);
+      assert.match(data.error, /could not be delivered/i);
+      assert.equal(data.devOtp, undefined);
+    } finally {
+      berry.sendOtp = async () => ({ success: true, delivered: true, simulated: true });
+    }
+  });
+
+  await t.test('8. POST /api/v1/customer/send-otp dispatches WhatsApp OTP for existing user', async () => {
     const res = await authFetch(`${apiBase}/api/v1/customer/send-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -133,7 +172,7 @@ test('WhatsApp Berry Protocol OTP Customer Auth & Merchant Configuration Suite',
     loginOtp = data.devOtp;
   });
 
-  await t.test('8. POST /api/v1/customer/verify-otp logs in existing user', async () => {
+  await t.test('9. POST /api/v1/customer/verify-otp logs in existing user', async () => {
     const res = await authFetch(`${apiBase}/api/v1/customer/verify-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -149,7 +188,7 @@ test('WhatsApp Berry Protocol OTP Customer Auth & Merchant Configuration Suite',
     assert.equal(data.customer.id, customerId);
   });
 
-  await t.test('9. Merchant WhatsApp status API responds with BerryProtocol metadata', async () => {
+  await t.test('10. Merchant WhatsApp status API responds with BerryProtocol metadata', async () => {
     const res = await authFetch(`${apiBase}/api/v1/admin/whatsapp/status`);
     assert.equal(res.status, 200);
     const data = await res.json();
@@ -158,7 +197,7 @@ test('WhatsApp Berry Protocol OTP Customer Auth & Merchant Configuration Suite',
     assert.ok(data.status);
   });
 
-  await t.test('10. Merchant WhatsApp reconnect API triggers pairing QR code generation', async () => {
+  await t.test('11. Merchant WhatsApp reconnect API triggers pairing QR code generation', async () => {
     const res = await authFetch(`${apiBase}/api/v1/admin/whatsapp/reconnect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
@@ -169,7 +208,7 @@ test('WhatsApp Berry Protocol OTP Customer Auth & Merchant Configuration Suite',
     assert.ok(data.qrCode);
   });
 
-  await t.test('11. Merchant WhatsApp pairing-code API accepts phone and returns 8-digit code', async () => {
+  await t.test('12. Merchant WhatsApp pairing-code API accepts phone and returns 8-digit code', async () => {
     const res = await authFetch(`${apiBase}/api/v1/admin/whatsapp/pairing-code`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -181,7 +220,7 @@ test('WhatsApp Berry Protocol OTP Customer Auth & Merchant Configuration Suite',
     assert.ok(data.pairingCode);
   });
 
-  await t.test('12. Merchant WhatsApp disconnect API safely clears session', async () => {
+  await t.test('13. Merchant WhatsApp disconnect API safely clears session', async () => {
     const res = await authFetch(`${apiBase}/api/v1/admin/whatsapp/disconnect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }

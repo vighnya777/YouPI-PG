@@ -116,20 +116,9 @@ export function registerCustomerRoutes(server, ctx) {
     const otpCode = crypto.randomInt(100000, 1000000).toString();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
-    if (existingUser) {
-      ctx.customerRepo.setOtp(cleanMobile, otpCode, expiresAt);
-    } else {
-      pendingOtpChallenges.set(cleanMobile, {
-        otpCode,
-        expiresAt,
-        name: name || `Customer ${cleanMobile.slice(-4)}`,
-        email: email || `${cleanMobile}@customer.youpi.local`
-      });
-    }
-
     // Dispatch via WhatsApp Berry Protocol
     const berry = getBerry();
-    let dispatchResult = { success: true, delivered: false, simulated: true };
+    let dispatchResult = { success: false, delivered: false };
     const displayName = existingUser?.name || name || '';
 
     if (berry) {
@@ -139,7 +128,26 @@ export function registerCustomerRoutes(server, ctx) {
         console.warn(`[CustomerAuth] WhatsApp dispatch notice: ${err.message}`);
       }
     } else {
-      console.log(`[CustomerAuth] Berry service not loaded; OTP for ${cleanMobile} was not delivered.`);
+      console.warn('[CustomerAuth] WhatsApp dispatch unavailable; OTP was not delivered.');
+    }
+
+    if (!dispatchResult?.success || !dispatchResult?.delivered) {
+      HttpServer.json(res, 503, {
+        success: false,
+        error: 'WhatsApp OTP could not be delivered. Please retry shortly.'
+      });
+      return;
+    }
+
+    if (existingUser) {
+      ctx.customerRepo.setOtp(cleanMobile, otpCode, expiresAt);
+    } else {
+      pendingOtpChallenges.set(cleanMobile, {
+        otpCode,
+        expiresAt,
+        name: name || `Customer ${cleanMobile.slice(-4)}`,
+        email: email || `${cleanMobile}@customer.youpi.local`
+      });
     }
 
     console.log(`[CustomerAuth] OTP generated for +91${cleanMobile} (expires in 5 mins)`);

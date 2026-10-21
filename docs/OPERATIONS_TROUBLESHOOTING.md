@@ -64,3 +64,10 @@ sqlite3 ./data/youpi_pg.sqlite ".backup './data/youpi_pg_backup.sqlite'"
 | Gmail Observer | 6003 | `http://localhost:6003/health` | `{"status":"UP","service":"gmail-observer"}` |
 | SMS Observer | 6002 | `http://localhost:6002/health` | `{"status":"UP","service":"sms-observer"}` |
 | Control Center | 8090 | `http://localhost:8090/health` | `{"status":"UP","service":"control-center"}` |
+
+## 5. Missing Payment Notifications or WhatsApp OTPs
+
+- **Gmail:** In Merchant Admin, open **Developer & Infrastructure Hub → Gmail & WhatsApp Protocols**. Gmail must show `CONNECTED` with an authorized account and an active token. `DISCONNECTED` / `NOT CONFIGURED` means Gmail polling is not running; complete Google OAuth and grant mailbox access. Confirm the OAuth callback URL is registered with Google and is the deployed public `/oauth/callback` URL.
+- **Android SMS:** A paired device is not necessarily online. The Admin device row reports `ONLINE` only when its heartbeat arrived within the last three minutes; `OFFLINE` means the phone app is not currently reaching the payment API. Re-open the Android observer app, allow notification access, disable battery restrictions, and verify its configured gateway URL points to the deployed HTTPS origin.
+- **WhatsApp OTP:** `CONNECTED` indicates the linked session is available, not that every outbound message was delivered. Checkout only advances when the server confirms dispatch. If dispatch fails, the send-OTP API returns `503` instead of claiming that a code was sent; check the WhatsApp session status and service logs, then re-pair if necessary.
+- Use only the Admin simulator for synthetic observations. It does not connect Gmail or read actual bank SMS and does not prove that a customer payment occurred.
